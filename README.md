@@ -6,7 +6,9 @@ We follow the below workflow:
 
 1.  Assess relatedness of individuals in each population and ancestry using CKMRsim.
 2.  Build genetic relatedness matrices:
-    1.  Apply a greedy algorithm to convert multi-allelic microhaplotype data into bi-allelic form
-    2.  Use AGHmatrix to build an A matrix and its inverse
+    -   Apply a greedy algorithm to convert multi-allelic microhaplotype data into bi-allelic form
+    -   Use AGHmatrix to build an A matrix and its inverse
 3.  Apply the GRM to the animal model using brms and following the workflow specified by Wilson et al. 2010. (2012?)
-    1.  We test multiple model formats to select the best fit model.
+    -   We test multiple model formats to select the best fit model.
+
+This workflow corresponds to numbered Quarto notebooks.
