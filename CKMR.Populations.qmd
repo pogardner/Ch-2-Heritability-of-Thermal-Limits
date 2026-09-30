@@ -1,0 +1,1136 @@
+---
+title: "CKMRsim: A Population level analysis"
+format: pdf
+author: Paige Gardner, UC Santa Cruz pogardne@ucsc.edu
+editor: visual
+---
+
+## CKMRsim: A Population level analysis
+
+The last ckmr script analysed the whole data set at once. While this didn't initially appear to be a problem, we want to assume that each population is isolated from one another. As a result, we need to run ckmr again on each population.
+
+1.  Load in libraries and data
+2.  Create new data frames for each watershed/population
+3.  Run CKMR code on each population.
+
+On 9/10, I re-ran all the code after filtering out loci noted by K Reid as either having low variability or probable correlation with other loci. I also used FNR = 0.01 as the threshold for setting logLR values for determining full-sibs instead of FPR.
+
+## 1. Prep library and data
+
+```{r}
+#| output: false
+library(tidyverse) 
+library(MCMCpack) # for animal model
+library(ggplot2) # plots
+library(here) # easy data file access for Git
+library(CKMRsim)
+```
+
+```{r}
+#| output: false
+
+# Phenotype and metadata
+ctmax <- read.csv(here("Genomics/Data/Omy5_inversion_metadata_merge.csv"))
+
+# SNP data -------------------------------------------------------------------
+# Data received 7/2/26
+snp <- read.csv(here("Genomics/Data/PaigeAdapCapFishSNPGenotypes.raw.csv"))
+# extract first 7 characters into column with the same name as the ctmax dataframe
+str(snp$Sample_ID)
+snp$indiv.ID <- substr(snp$Sample_ID,1,7)
+# remove original sample_ID column
+snp <- snp %>% 
+  dplyr::select(-Sample_ID)
+snp <- snp %>% relocate(last_col())
+
+### rename the columns ----------------------
+# make the periods be _ for the next steps.
+snp <- snp %>% 
+  rename_with(~ gsub(".", "_",.x, fixed = TRUE))
+# make note of the current order of loci in the data set
+nc <- ncol(snp)
+loci <- str_replace( # expects string, pattern, replacement
+  names(snp)# returns the names of the columns
+  [seq(2, nc, by = 2)], # creates a sequence of even numbers starting at 2 and ending at nc, stepping by 2
+  "\\.\\.\\.[0-9]+$", "") # this cleans up column names. So I don't think this will impact my dataframe at all
+
+#  reset the locus names
+names(snp)[seq(2, nc, by = 2)] <- str_c(loci, "1", sep = ".") #put a .1 at the end of the first allele
+names(snp)[seq(3, nc, by = 2)] <- str_c(loci, "2", sep = ".") # put a .2 at the end of the second allele
+snp <- snp %>% 
+  rename(indiv.ID = indiv_ID)
+
+
+# MHap data----------------------------------------------------------------------
+## Neutral
+neutral_mhap <- read.csv(here("Genomics/Data/Neutral_genotypes_mhapcode_wide.csv"))
+nc <- ncol(neutral_mhap)
+loci <- str_replace( # expects string, pattern, replacement
+  names(neutral_mhap)# returns the names of the columns
+  [seq(2, nc, by = 2)], # creates a sequence of even numbers starting at 2 and ending at nc, stepping by 2
+  "\\.\\.\\.[0-9]+$", "") # this cleans up column names. So I don't think this will impact my dataframe at all
+
+#  reset the locus names
+names(neutral_mhap)[seq(2, nc, by = 2)] <- str_c(loci, "1", sep = ".") #put a .1 at the end of the first allele
+names(neutral_mhap)[seq(3, nc, by = 2)] <- str_c(loci, "2", sep = ".") # put a .2 at the end of the second allele
+```
+
+### Important filtering from adaptive panel
+
+After running the adap_panel_variationanalysis R script, I determined there was a lot of homogeneity in the adaptive panel that was skewing the relationships of individuals and making them look a lot more related than they are. These are the loci I am removing following that analysis:
+
+-   Remove all Ch28 (homogenous)
+
+-   From Omy05: keep only Omy_ch05_10_57 and omy_ch05_8
+
+-   greb1: keep mhap 10 and mhap2
+
+-   vgll3: remove snp2
+
+-   six6: this one was challenging because it looks like there's a lot of heterogeneity in this region. I selected Omy_Ch25_Six6_61287415 and Omy_Ch25_Six6_61318852
+
+Kerry suggested removing the following, across all panels:
+
+-   SH127645_308: low variability
+
+-   Omy_Ch22_VGLL3.6_snp2: low variability
+
+-   Omy_Ch25_Six6_61317777: low variability
+
+-   Omy_Ch25_Six6_61322413: low variability
+
+-   Omy_Ch25_Six6.6_snp2: low variability
+
+-   Omy_Ch28_11622532 : low variability
+
+-   Omy_Ch28_11623412 : low variability
+
+-   Omy_Ch28_11629294 : low variability
+
+-   Omy_Ch28_11641623 : low variability
+
+-   Omy_Ch28_11658853 : low variability
+
+-   tag_id_2020 : low variability
+
+-   tag_id_2192 : low variability
+
+-   tag_id_3593 : low variability
+
+-   tag_id_904 : low variability
+
+-   SH114448_87: Potentially correlated
+
+-   Omy_R04944 : Potentially correlated
+
+-   SH107074_217 : Potentially correlated
+
+-   Omy_Ch05_10_57417407 : Potentially correlated
+
+-   Omy_Ch05_6_56087112: Potentially correlated
+
+-   Omy_Ch05_7_76786553 : Potentially correlated
+
+-   Omy_Ch05_8_28133607 : Potentially correlated
+
+-   Omy_Ch05_9_54854574 : Potentially correlated
+
+-   Omy_Ch25_Six6_61316270 : Potentially correlated
+
+-   Omy_Ch25_Six6_61318852 : Potentially correlated
+
+-   Omy_Ch25_Six6.6_snp1 : Potentially correlated
+
+-   Omy_Ch28_11667578 : Potentially correlated
+
+-   Omy_Ch28_11676622 : Potentially correlated
+
+-   Omy_Ch28_11678603 : Potentially correlated
+
+-   Omy_Ch28_11683310 : Potentially correlated
+
+-   Omy_Ch28_11684744 : Potentially correlated
+
+-   Omy_Ch28_greb1_mhap6 : Potentially correlated
+
+-   Omy_Ch28_greb1_mhap8 : Potentially correlated
+
+-   tag_id_3862 : Potentially correlated
+
+-   tag_id_5746: Potentially correlated
+
+```{r}
+## Adaptive
+adap_mhap <- read.csv(here("Genomics/Data/Adaptive_genotypes_mhapcode_wide.csv"))
+
+```
+
+```{r}
+
+
+# Filter out all but one of the Omy05 markers to avoid pseudo-replication
+adap_mhap_clean <- adap_mhap %>% 
+  # Ch 28
+  dplyr::select(!contains("Omy_Ch28_11")) %>% # remove all Ch_28 that aren't greb1
+  # vgll3
+  dplyr::select(-c("Omy_Ch22_VGLL3.6_snp2_haplotype.1", # remove vgll3 snp2
+                   "Omy_Ch22_VGLL3.6_snp2_haplotype.2")) %>% 
+  dplyr::select("indiv.ID", # keep individual id
+  # Omy05
+                "Omy_Ch05_10_57417407_haplotype.1", #Omy05
+                "Omy_Ch05_10_57417407_haplotype.2", #Omy05
+                "Omy_Ch05_8_28133607_haplotype.1",#Omy05
+                "Omy_Ch05_8_28133607_haplotype.2",#Omy05
+  # greb1
+                "Omy_Ch28_greb1_mhap10_haplotype.1",# greb1
+                "Omy_Ch28_greb1_mhap10_haplotype.2",# greb1
+                "Omy_Ch28_greb1_mhap2_haplotype.1", # greb1
+                "Omy_Ch28_greb1_mhap2_haplotype.2",   # greb1
+  # six6
+                
+                "Omy_Ch25_Six6_61287415_haplotype.1",
+                "Omy_Ch25_Six6_61287415_haplotype.2",
+                "Omy_Ch25_Six6_61318852_haplotype.1",
+                "Omy_Ch25_Six6_61318852_haplotype.2",
+  # leftover vgll3
+                "Omy_Ch22_VGLL3.1_haplotype.1",
+                "Omy_Ch22_VGLL3.1_haplotype.2",
+                "Omy_Ch22_VGLL3.6_snp1_haplotype.1",
+                "Omy_Ch22_VGLL3.6_snp1_haplotype.2") 
+```
+
+The ones Kerry suggested to remove, across all panels:
+
+```{r}
+merged <- merge(adap_mhap,neutral_mhap, by = "indiv.ID") 
+fullmerge <- merge(snp, merged, by = "indiv.ID")
+merged_clean <- fullmerge %>% 
+  dplyr::select(!contains(c("SH127645_308",
+                            "SexID",
+                   "Omy_Ch22_VGLL3.6_snp2",
+                   "Omy_Ch25_Six6_61317777",
+                   "Omy_Ch25_Six6_61322413",
+                   "Omy_Ch25_Six6.6_snp2",
+                   "Omy_Ch28_11622532",
+                   "Omy_Ch28_11623412",
+                   "Omy_Ch28_11629294",
+                   "Omy_Ch28_11641623",
+                   "Omy_Ch28_11658853",
+                   "tag_id_2020",
+                   "tag_id_2192",
+                   "tag_id_3593",
+                   "tag_id_904",
+                   "SH114448_87",
+                   "Omy_R04944",
+                   "SH107074_217",
+                   "Omy_Ch05_10_57417407",
+                   "Omy_Ch05_6_56087112",
+                   "Omy_Ch05_7_76786553",
+                   "Omy_Ch05_8_28133607",
+                   "Omy_Ch05_9_54854574",
+                   "Omy_Ch25_Six6_61316270",
+                   "Omy_Ch25_Six6_61318852",
+                   "Omy_Ch25_Six6.6_snp1",
+                   "Omy_Ch28_11667578",
+                   "Omy_Ch28_11676622",
+                   "Omy_Ch28_11678603",
+                   "Omy_Ch28_11683310",
+                   "Omy_Ch28_11684744",
+                   "Omy_Ch28_greb1_mhap6",
+                   "Omy_Ch28_greb1_mhap8",
+                   "tag_id_3862",
+                   "tag_id_5746"))) %>% 
+  filter(!indiv.ID %in% c("M145767","M145542", # matching indivs from scott creek and big creek
+                       "M145524", "M145692"))
+```
+
+
+Save the above data frame for easy access in the repository:
+
+```{r}
+write.csv(merged_clean, "Data/merged_TRIMMEDgenetics_KReid_9.10.26_codewide.csv", row.names = FALSE)
+```
+
+Merge location data from the metadata file with the above data file. (Most recently re-ran after filtering out loci suggested by K Reid on 9/10)
+
+```{r}
+populations <- ctmax %>% 
+  rename(indiv.ID = NMFS_DNA_ID_use) %>% 
+   filter(!indiv.ID %in% c("M145767","M145542", 
+                       "M145524", "M145692")) %>% 
+  dplyr::select(c(indiv.ID,WATERSHED)) %>% 
+  left_join(., merged_clean, by ="indiv.ID")
+
+populations %>%
+  count(indiv.ID) %>%
+  filter(n > 1)
+```
+
+## 2. Separate Data Frames for Each Population
+
+```{r}
+bigcreek <- populations %>% 
+  filter(WATERSHED == "Big Creek") %>% 
+  dplyr::select(-WATERSHED)
+
+write.csv(bigcreek, "Data/bigcreek_cleaned_snps_mhaps.csv")
+
+scottcreek <- populations %>% 
+  filter(WATERSHED == "Scott Creek")%>% 
+  dplyr::select(-WATERSHED)
+
+carmelriver <- populations %>% 
+  filter(WATERSHED == "Carmel River")%>% 
+  dplyr::select(-WATERSHED)
+
+napariver <- populations %>% 
+  filter(WATERSHED == "Napa River")%>% 
+  dplyr::select(-WATERSHED)
+
+russianriver <- populations %>% 
+  filter(WATERSHED == "Russian River")%>% 
+  dplyr::select(-WATERSHED)
+```
+
+## 3a) Big Sur
+
+```{r}
+# make note of the current order of loci in the data set
+nc <- ncol(bigcreek)
+loci <- str_replace(names(bigcreek)[seq(2, nc, by = 2)], "\\.1$", "")
+# then make some long format genotypes
+long_genos <- bigcreek %>% 
+  gather(key = "loc", value = "Allele", -indiv.ID) %>%
+   extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
+    loc,
+    into = c("Locus", "gene_copy"),
+    regex = "^(.*)\\.([12])$"
+  ) %>%
+  mutate(Allele = as.character(Allele)) %>%
+  mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
+  rename(Indiv = indiv.ID)
+
+saveRDS(long_genos, file = "Data/bigcreek_longgenos.rds")
+```
+
+Compute allele frequencies. Save it as an rds file for input into greedy algorithm (other script).
+
+```{r}
+bigcreekalle_freqs <- long_genos %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+
+# see what that looks like:
+saveRDS(bigcreekalle_freqs, file = "Data/bigcreek_allelefreqs.rds")
+```
+
+Reindex the data allele frequency data frame so that ckmr can use it
+
+```{r}
+afreqs_ready <- reindex_markers(bigcreekalle_freqs)
+```
+
+**Create a ckmr object**
+
+```{r}
+bigcreek_ckmr <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("PO","FS","U","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+bigcreek_ckmr
+```
+
+**Simulate genotype pairs and calculate their log probabilities.**
+
+```{r}
+bigcreek_Qs <- simulate_Qij(bigcreek_ckmr, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+bigcreek_Qs
+```
+
+**Compute log-likelihood ratios to view them**
+
+```{r}
+bigcreek_FS_U_logls <- extract_logls(bigcreek_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+bigcreek_FS_U_logls
+```
+
+**Visualize**
+
+```{r}
+ggplot(bigcreek_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)
+```
+
+**Estimating FPR**
+
+```{r}
+bigcreek_FS_is <- mc_sample_simple(bigcreek_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+bigcreek_FS_is
+
+FPR_results <- mc_sample_simple(
+  bigcreek_Qs,
+  nu = "FS",
+  de = "U",
+  lambda_stars = seq(5, 20, by = 0.1)
+)
+```
+
+#### How many comparisons? Setting acceptable FPR
+
+127 individuals
+
+```{r}
+0.1*((127*126)/2)^-1
+```
+
+## Setting logLR
+
+Logl ratio that gives FNR = 0.01
+
+```{r}
+bigcreek_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+```
+
+We can set logLR to 18.
+
+**Check for matchers.**
+
+```{r}
+matchers <- find_close_matching_genotypes(LG = long_genos,
+                                          CK = bigcreek_ckmr,
+                                          max_mismatch = 6)
+
+matchers
+```
+
+None!
+
+Compute LogLR for all pairwise comparisons.
+
+```{r}
+# Full sib pairs
+bigcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
+                                              D2 = long_genos,
+                                              CK = bigcreek_ckmr,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+
+
+
+# note, num_cores is set to 1 because more than that breaks
+# it on CRAN checks.  But, leave it blank (i.e., don't use the
+# num_core option) to, by default, use all
+# your cores in parallel on a non-windows machine.
+```
+
+```{r}
+fullsibs_bigcreek = bigcreek_fs_pairwise_logls %>%
+  filter(logl_ratio > 18) %>%
+  arrange(desc(logl_ratio))
+
+bigcreek_FS_is %>%
+  arrange(Lambda_star) %>%
+  dplyr::select(Lambda_star, FPR) 
+```
+
+## 3b) Scott Creek
+
+```{r}
+nc <- ncol(scottcreek)
+loci <- str_replace(names(scottcreek)[seq(2, nc, by = 2)], "\\.1$", "")
+# then make some long format genotypes
+long_genos <- scottcreek %>% 
+  gather(key = "loc", value = "Allele", -indiv.ID) %>%
+   extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
+    loc,
+    into = c("Locus", "gene_copy"),
+    regex = "^(.*)\\.([12])$"
+  ) %>%
+  mutate(Allele = as.character(Allele)) %>%
+  mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
+  rename(Indiv = indiv.ID)
+```
+
+Compute allele frequencies.
+
+```{r}
+scottcreekalle_freqs <- long_genos %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+
+# see what that looks like:
+alle_freqs
+
+saveRDS(scottcreekalle_freqs)
+
+# How much missingness do you have?
+long_genos %>%
+  group_by(Locus) %>%
+  summarise(
+    n = n(),
+    missing = sum(is.na(Allele)),
+    prop_missing = mean(is.na(Allele))
+  )
+
+alle_freqs %>%
+  group_by(Locus) %>%
+  summarise(
+    n_alleles = n(),
+    freq_sum = sum(Freq)
+  )
+
+```
+
+Reindex the data allele frequency data frame so that ckmr can use it
+
+```{r}
+afreqs_ready <- reindex_markers(alle_freqs)
+```
+
+**Create a ckmr object**
+
+```{r}
+scottcreek_ckmr <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("FS", "U","PO","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+```
+
+**Simulate genotype pairs and calculate their log probabilities.**
+
+```{r}
+scottcreek_Qs <- simulate_Qij(scottcreek_ckmr, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+scottcreek_Qs
+```
+
+**Compute log-likelihood ratios to view them**
+
+```{r}
+scottcreek_FS_U_logls <- extract_logls(scottcreek_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+scottcreek_FS_U_logls
+```
+
+**Visualize**
+
+```{r}
+ggplot(scottcreek_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)
+```
+
+### Estimating FPR
+
+```{r}
+scottcreek_FS_is <- mc_sample_simple(scottcreek_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+scottcreek_FS_is
+
+FPR_results <- mc_sample_simple(
+  scottcreek_Qs,
+  nu = "FS",
+  de = "U",
+  tr = "U",
+    lambda_stars = seq(0, 20, 1)
+)
+sum(is.na(scottcreek))
+```
+
+#### How many comparisons? Setting acceptable FPR
+
+127 individuals
+
+```{r}
+0.1*((119*118)/2)^-1
+```
+
+#### Setting logLR
+
+Logl ratio that gives FNR = 0.01
+
+```{r}
+scottcreek_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+```
+
+Set lambda to 17.
+
+**Check for matchers.**
+
+```{r}
+matchers <- find_close_matching_genotypes(LG = long_genos,
+                                          CK = scottcreek_ckmr,
+                                          max_mismatch = 6)
+
+matchers
+```
+
+Compute LogLR for all pairwise comparisons.
+
+```{r}
+# Full sib pairs
+scottcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
+                                              D2 = long_genos,
+                                              CK = scottcreek_ckmr,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+
+
+
+# note, num_cores is set to 1 because more than that breaks
+# it on CRAN checks.  But, leave it blank (i.e., don't use the
+# num_core option) to, by default, use all
+# your cores in parallel on a non-windows machine.
+```
+
+```{r}
+fullsibs_scottcreek<- scottcreek_fs_pairwise_logls %>%
+  filter(logl_ratio > 16) %>%
+  arrange(desc(logl_ratio))
+
+scottcreek_FS_is %>%
+  arrange(Lambda_star) %>%
+  dplyr::select(Lambda_star, FPR) 
+```
+
+## 3c) Carmel River
+
+```{r}
+# make note of the current order of loci in the data set
+nc <- ncol(carmelriver)
+loci <- str_replace(names(carmelriver)[seq(2, nc, by = 2)], "\\.1$", "")
+# then make some long format genotypes
+long_genos <- carmelriver %>% 
+  gather(key = "loc", value = "Allele", -indiv.ID) %>%
+   extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
+    loc,
+    into = c("Locus", "gene_copy"),
+    regex = "^(.*)\\.([12])$"
+  ) %>%
+  mutate(Allele = as.character(Allele)) %>%
+  mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
+  rename(Indiv = indiv.ID)
+
+```
+
+Compute allele frequencies.
+
+```{r}
+alle_freqs <- long_genos %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+
+# see what that looks like:
+alle_freqs
+```
+
+Reindex the data allele frequency data frame so that ckmr can use it
+
+```{r}
+afreqs_ready <- reindex_markers(alle_freqs)
+```
+
+**Create a ckmr object**
+
+```{r}
+carmelriver_ckmr <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("FS", "U","PO","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+carmelriver_ckmr
+```
+
+**Simulate genotype pairs and calculate their log probabilities.**
+
+```{r}
+carmelriver_Qs <- simulate_Qij(carmelriver_ckmr, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+carmelriver_Qs
+```
+
+**Compute log-likelihood ratios to view them**
+
+```{r}
+carmelriver_FS_U_logls <- extract_logls(carmelriver_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+carmelriver_FS_U_logls
+```
+
+**Visualize**
+
+```{r}
+ggplot(carmelriver_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)
+```
+
+### Estimating FPR
+
+```{r}
+carmelriver_FS_is <- mc_sample_simple(carmelriver_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+carmelriver_FS_is
+
+FPR_results <- mc_sample_simple(
+  carmelriver_Qs,
+  nu = "FS",
+  de = "U",
+  lambda_stars = seq(5, 20, by = 0.1)
+)
+```
+
+#### How many comparisons? Setting acceptable FPR
+
+116 individuals
+
+```{r}
+0.1*((116*115)/2)^-1
+```
+
+#### Setting logLR
+
+Logl ratio that gives FNR = 0.01
+
+```{r}
+carmelriver_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+```
+
+Set logLR to 15
+
+**Check for matchers.**
+
+```{r}
+matchers <- find_close_matching_genotypes(LG = long_genos,
+                                          CK = carmelriver_ckmr,
+                                          max_mismatch = 6)
+
+matchers
+```
+
+Compute LogLR for all pairwise comparisons.
+
+```{r}
+# Full sib pairs
+carmelriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
+                                              D2 = long_genos,
+                                              CK = carmelriver_ckmr,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+
+
+
+# note, num_cores is set to 1 because more than that breaks
+# it on CRAN checks.  But, leave it blank (i.e., don't use the
+# num_core option) to, by default, use all
+# your cores in parallel on a non-windows machine.
+```
+
+```{r}
+fullsibs_carmelriver = carmelriver_fs_pairwise_logls %>%
+  filter(logl_ratio > 15) %>%
+  arrange(desc(logl_ratio))
+
+carmelriver_FS_is %>%
+  arrange(Lambda_star) %>%
+  dplyr::select(Lambda_star, FPR) 
+```
+
+## 3d) Napa River
+
+```{r}
+# make note of the current order of loci in the data set
+nc <- ncol(napariver)
+loci <- str_replace(names(napariver)[seq(2, nc, by = 2)], "\\.1$", "")
+# then make some long format genotypes
+long_genos <- napariver %>% 
+  gather(key = "loc", value = "Allele", -indiv.ID) %>%
+   extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
+    loc,
+    into = c("Locus", "gene_copy"),
+    regex = "^(.*)\\.([12])$"
+  ) %>%
+  mutate(Allele = as.character(Allele)) %>%
+  mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
+  rename(Indiv = indiv.ID)
+
+```
+
+Compute allele frequencies.
+
+```{r}
+alle_freqs <- long_genos %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+
+# see what that looks like:
+alle_freqs
+```
+
+Reindex the data allele frequency data frame so that ckmr can use it
+
+```{r}
+afreqs_ready <- reindex_markers(alle_freqs)
+```
+
+**Create a ckmr object**
+
+```{r}
+napariver_ckmr <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("FS", "U","PO","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+napariver_ckmr
+```
+
+**Simulate genotype pairs and calculate their log probabilities.**
+
+```{r}
+napariver_Qs <- simulate_Qij(napariver_ckmr, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","PO","HS") )
+napariver_Qs
+```
+
+**Compute log-likelihood ratios to view them**
+
+```{r}
+napariver_FS_U_logls <- extract_logls(napariver_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+napariver_FS_U_logls
+```
+
+**Visualize**
+
+```{r}
+ggplot(napariver_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)
+```
+
+### Estimating FPR
+
+```{r}
+napariver_FS_is <- mc_sample_simple(napariver_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+napariver_FS_is
+
+FPR_results <- mc_sample_simple(
+  napariver_Qs,
+  nu = "FS",
+  de = "U",
+  lambda_stars = seq(5, 20, by = 0.1)
+)
+```
+
+#### How many comparisons? Setting acceptable FPR
+
+127 individuals
+
+```{r}
+0.1*((50*49)/2)^-1
+```
+
+#### Setting logLR
+
+Logl ratio that gives FNR = 0.01
+
+```{r}
+napariver_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+```
+
+Set lambda to 12, or maybe 13.
+
+**Check for matchers.**
+
+```{r}
+matchers <- find_close_matching_genotypes(LG = long_genos,
+                                          CK = napariver_ckmr,
+                                          max_mismatch = 6)
+
+matchers
+```
+
+Compute LogLR for all pairwise comparisons.
+
+```{r}
+# Full sib pairs
+napariver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
+                                              D2 = long_genos,
+                                              CK = napariver_ckmr,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+
+
+
+# note, num_cores is set to 1 because more than that breaks
+# it on CRAN checks.  But, leave it blank (i.e., don't use the
+# num_core option) to, by default, use all
+# your cores in parallel on a non-windows machine.
+```
+
+```{r}
+fullsibs_napariver = napariver_fs_pairwise_logls %>%
+  filter(logl_ratio > 13) %>%
+  arrange(desc(logl_ratio))
+
+napariver_FS_is %>%
+  arrange(Lambda_star) %>%
+  dplyr::select(Lambda_star, FPR) 
+```
+
+## 3e) Russian River
+
+```{r}
+# make note of the current order of loci in the data set
+nc <- ncol(russianriver)
+loci <- str_replace(names(russianriver)[seq(2, nc, by = 2)], "\\.1$", "")
+# then make some long format genotypes
+long_genos <- russianriver %>% 
+  gather(key = "loc", value = "Allele", -indiv.ID) %>%
+   extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
+    loc,
+    into = c("Locus", "gene_copy"),
+    regex = "^(.*)\\.([12])$"
+  ) %>%
+  mutate(Allele = as.character(Allele)) %>%
+  mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
+  rename(Indiv = indiv.ID)
+
+```
+
+Compute allele frequencies.
+
+```{r}
+alle_freqs <- long_genos %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+
+# see what that looks like:
+alle_freqs
+```
+
+Reindex the data allele frequency data frame so that ckmr can use it
+
+```{r}
+afreqs_ready <- reindex_markers(alle_freqs)
+```
+
+**Create a ckmr object**
+
+```{r}
+russianriver_ckmr <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("FS", "U","PO","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+russianriver_ckmr
+```
+
+**Simulate genotype pairs and calculate their log probabilities.**
+
+```{r}
+russianriver_Qs <- simulate_Qij(russianriver_ckmr, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","PO","HS") )
+russianriver_Qs
+```
+
+**Compute log-likelihood ratios to view them**
+
+```{r}
+russianriver_FS_U_logls <- extract_logls(russianriver_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+russianriver_FS_U_logls
+```
+
+**Visualize**
+
+```{r}
+ggplot(russianriver_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)
+```
+
+### Estimating FPR
+
+```{r}
+russianriver_FS_is <- mc_sample_simple(russianriver_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+russianriver_FS_is
+
+FPR_results <- mc_sample_simple(
+  russianriver_Qs,
+  nu = "FS",
+  de = "U",
+  lambda_stars = seq(5, 20, by = 0.1)
+)
+```
+
+#### How many comparisons? Setting acceptable FPR
+
+127 individuals
+
+```{r}
+0.1*((72*71)/2)^-1
+```
+
+#### Setting logLR
+
+Logl ratio that gives FNR = 0.01
+
+```{r}
+bigcreek_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+```
+
+Set lambda to either 17 or 18
+
+**Check for matchers.**
+
+```{r}
+matchers <- find_close_matching_genotypes(LG = long_genos,
+                                          CK = russianriver_ckmr,
+                                          max_mismatch = 6)
+
+matchers
+```
+
+Compute LogLR for all pairwise comparisons.
+
+```{r}
+# Full sib pairs
+russianriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
+                                              D2 = long_genos,
+                                              CK = russianriver_ckmr,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+
+
+
+# note, num_cores is set to 1 because more than that breaks
+# it on CRAN checks.  But, leave it blank (i.e., don't use the
+# num_core option) to, by default, use all
+# your cores in parallel on a non-windows machine.
+```
+
+```{r}
+fullsibs_russianriver = russianriver_fs_pairwise_logls %>%
+  filter(logl_ratio > 18) %>%
+  arrange(desc(logl_ratio))
+
+russianriver_FS_is %>%
+  arrange(Lambda_star) %>%
+  dplyr::select(Lambda_star, FPR) 
+```
+
+Whether or not I set the loglr to 17 or 18 doesn't change the number of full sibs.
