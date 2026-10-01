@@ -1,0 +1,153 @@
+---
+title: "Notebook 3. Matrix"
+format: html
+editor: visual
+---
+
+# VanRaden matrix
+
+```{r}
+#Computing the additive relationship matrix based on VanRaden 2008
+library(AGHmatrix)
+
+# Make a copy so we don't alter the original data
+bigcreek_G <- bigcreek_dosage
+bigcreek_IDs <- bigcreek_dosage$Indiv
+
+# Remove the individual ID column
+bigcreek_G <- bigcreek_G[, -1]
+
+
+# Convert the genotype data to numeric
+bigcreek_G <- as.data.frame(
+  lapply(bigcreek_G, as.numeric)
+)
+
+
+# Replace NA with -9
+bigcreek_G[is.na(bigcreek_G)] <- -9
+
+
+# Convert the data frame to a numeric matrix
+bigcreek_G <- as.matrix(bigcreek_G)
+
+
+# Check the structure
+class(bigcreek_G)
+mode(bigcreek_G)
+
+G_VanRadenPine <- Gmatrix(
+  SNPmatrix = bigcreek_G,
+  missingValue = -9,
+  maf = 0.05,
+  method = "VanRaden"
+)
+```
+
+```{r}
+# ------------------------------------------------------------
+# Add individual IDs to the genomic relationship matrix
+# ------------------------------------------------------------
+
+# Add individual IDs as row names
+rownames(G_VanRadenPine) <- bigcreek_IDs
+
+# Add individual IDs as column names
+colnames(G_VanRadenPine) <- bigcreek_IDs
+
+
+# ------------------------------------------------------------
+# Look at the resulting relationship matrix
+# ------------------------------------------------------------
+
+G_VanRadenPine[1:10, 1:10]
+```
+
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# make the matrix into long format for plotting
+longM <- melt(G_VanRadenPine)
+max(longM$value)
+
+ggplot(longM, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-2,2), space = "Lab") +
+  theme_minimal() +
+  theme(axis.text = element_text(angle = 45, hjust = 1, size = 2))+
+  coord_fixed()
+
+ggsave("BigCreek.Matrix.png", width = 5, height = 5, units = "in")
+```
+
+Let's make a histogram
+
+```{r}
+ggplot(longM, aes(x=value))+
+  geom_histogram(binwidth = 0.05,
+                 fill= "gray",
+                 color = "black")+
+  labs(x= "Relatedness",
+       y = "",
+       title = "Distribution of pairwise relatedness values in Big Creek Matrix")
+```
+
+Try inverting:
+
+```{r}
+G.inv <- solve(G_VanRadenPine)
+
+# Add individual IDs as row names
+rownames(G.inv) <- bigcreek_IDs
+
+# Add individual IDs as column names
+colnames(G.inv) <- bigcreek_IDs
+
+# check the determinant.
+det(G_VanRadenPine)
+```
+
+The determinant is very close to 0- not promising.
+
+```{r}
+eigen_G <- eigen(G_VanRadenPine, symmetric = TRUE)
+
+eigen_G$values
+min(eigen_G$values)
+
+```
+
+```{r}
+max(eigen_G$values)
+```
+
+According to ChatGPT, the eigenvalues indicate a strong matrix for inversion. Yay! The next step will be to make a heat map of the matrix to make sure it worked.
+
+```{r}
+library(MCMCglmm)
+```
+
+```{r}
+ctmax <- read.csv(here("Genomics/Data/Omy5_inversion_metadata_merge.csv"))
+bigcreek_pheno <- ctmax %>% 
+  filter(WATERSHED == "Big Creek") %>% 
+  rename(Indiv = NMFS_DNA_ID_use) %>% 
+  filter(!Indiv %in% c("M145524", "M145542"))
+
+str(bigcreek_pheno$Treatment)
+bigcreek_pheno$Treatment = as.character(bigcreek_pheno$Treatment)
+
+class(G.inv)
+# make the matrix into a sparse format
+G.inv <- Matrix(G.inv, sparse = TRUE)
+
+model1.2 <- MCMCglmm(LOE.Temp_C ~ 1 + Treatment, #Response and Fixed effect formula
+                   random = ~Indiv, # Random effect formula
+          ginverse = list(Indiv = G.inv), # correlations among random effect levels (here breeding values)
+          data = bigcreek_pheno)
+summary(model1.2)
+```
+
+Wow it worked! The next steps will be taking a slower walk through setting priors, checking how well the model ran, and interpreting the results.

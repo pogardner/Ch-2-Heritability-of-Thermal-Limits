@@ -1,5 +1,5 @@
 ---
-title: "Notebook 1: CKMRsim"
+title: "CKMRsim: A Population level analysis"
 format: pdf
 author: Paige Gardner, UC Santa Cruz pogardne@ucsc.edu
 editor: visual
