@@ -1,5 +1,5 @@
 ---
-title: "CKMRsim: A Population level analysis"
+title: "Notebook 1: CKMRsim"
 format: pdf
 author: Paige Gardner, UC Santa Cruz pogardne@ucsc.edu
 editor: visual
@@ -243,7 +243,6 @@ merged_clean <- fullmerge %>%
   filter(!indiv.ID %in% c("M145767","M145542", # matching indivs from scott creek and big creek
                        "M145524", "M145692"))
 ```
-
 
 Save the above data frame for easy access in the repository:
 
