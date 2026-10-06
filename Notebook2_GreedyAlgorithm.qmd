@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-## Compressing multi-allelic microhaplotypes to bi-allelic format
+# Compressing multi-allelic microhaplotypes to bi-allelic format
 
 Building a genomic relatedness matrix (GRM) requires bi-allelic data. This is not compatible with our microhaplotype data, which sometimes has as many as 8 forms of one allele. Instead, we can compress this using a greedy algorithm. The greedy algorithm is a problem-solving algorithm that picks the most optimal choice at each step in the process. It does not consider previous choices- each choice is unique.
 
@@ -15,9 +15,12 @@ A concept he references frequently is minor allele frequencies (MAF's). We are s
 ```{r}
 library(tidyverse)
 library(CKMRsim)
+library(dplyr)
+library(stringr)
 ```
 
 This is E. Anderson's code. First, he writes a function that acts any non-biallelic (SNP, or simple mhaps) into the algorithm.
+# Algorithm
 
 ```{r}
 partition_greedy <- function(x) {
@@ -57,13 +60,13 @@ partition_greedy <- function(x) {
     FreqOrig = unname(c(group1, group2))
   )
 }
-
 ```
 
+# 1) Big Creek
 Read in trimmed csv of all genetics data for Big Creek, trimmed of pseudoreplicates:
 
 ```{r}
-bigcreek <- read.csv("Data/bigcreek_cleaned_snps_mhaps.csv")
+bigcreek <- read.csv("Data/Populations/bigcreek_cleaned_snps_mhaps.csv")
 nc <- ncol(bigcreek)
 loci <- str_replace(names(bigcreek)[seq(2, nc, by = 2)], "\\.1$", "")
 ```
@@ -71,14 +74,14 @@ loci <- str_replace(names(bigcreek)[seq(2, nc, by = 2)], "\\.1$", "")
 Now I'll read in my first .rds file. This file is just for Big Creek.
 
 ```{r}
-bigcreek_freq = read_rds("Data/bigcreek_allelefreqs.rds")
+bigcreek_freq = read_rds("Data/Populations/bigcreek_allelefreqs.rds")
 str(bigcreek_freq$Allele)
 
-lumpy <- bigcreek_freq %>%
+bc_lumpy <- bigcreek_freq %>%
   group_by(Chrom, Pos, Locus) %>%
   nest() %>%
   mutate(
-    lumps = map(.x = data, .f = function(x) {
+    lumps = map(.x = data, .f = function(x) { # map applies a function to each element of a list and returns a list
       v <- x$Freq
       names(v) <- x$Allele
       partition_greedy(v)
@@ -87,28 +90,28 @@ lumpy <- bigcreek_freq %>%
   unnest(cols = c(data, lumps)) %>%
   ungroup()
 
-lumpy
+bc_lumpy
 ```
 
-I don't have AlleIdx or LocIdx, which Anne had. And I wonder if that's because my input data frame doesn't have the original genotypes in them. This wasn't a problem for the CKMRsim output, so I'll push forward, knowing this could be an issue later.
+I don't have AlleIdx or LocIdx. This wasn't a problem for the CKMRsim output, so I'll push forward, knowing this could be an issue later.
 
 Now we look at how many alleles we end up with:
 
 ```{r}
-new_freqs <- lumpy %>%
+bc_new_freqs <- bc_lumpy %>%
   group_by(Chrom, Pos, Locus, LumpedAllele) %>%
   summarise(
     LumpedFreq = sum(FreqOrig),
     orig_num_alle = n()
   )
 
-new_freqs
+bc_new_freqs
 ```
 
 At this point, my lumpedallele column is still using numbers, whereas his example has V and W. It still seemed to work, but this may be worth changing.
 
 ```{r}
-MAFs <- new_freqs %>%
+MAFs <- bc_new_freqs %>%
   filter(LumpedFreq == min(LumpedFreq)) %>%
   rename(MAF = LumpedFreq) %>%
   mutate(
@@ -119,8 +122,12 @@ MAFs <- new_freqs %>%
   )
 
 ggplot(MAFs, aes(x = MAF, fill = type)) +
-  geom_histogram(binwidth = 0.01) +
-  facet_wrap(~ type, ncol = 1)
+  geom_histogram(binwidth = 0.01, color="black") +
+  facet_wrap(~ type, ncol = 1)+
+  labs(y="",
+       x= "MAF",
+       title="Big Creek Greedy Alg. MAF")+
+  theme_bw()
 ```
 
 This didn't turn out nearly as pretty as E. Anderson's did on Anne's data. I'm not sure if something went wrong. I will proceed as if it's ok, but go over this in depth with Kerry once she returns from leave.
@@ -132,10 +139,10 @@ joiner = lumpy %>%
 
 This data frame can then be joined with the long_genos data frame created in the the CKMR.Populations file. E. Anderson recommends using by = join_by(Chrom, Pos, Locus, Allele == AlleleOrig)
 
-## Read in long genos from Big Creek
+#### Read in long genos file
 
 ```{r}
-lg <- read_rds("Data/bigcreek_longgenos.rds")
+lg <- read_rds("Data/Populations/bigcreek_longgenos.rds")
 ```
 
 Join by locus? I don't fully understand how we're not losing data here.
@@ -148,12 +155,14 @@ bigcreek_lumpy = left_join(
   rename(Allele = LumpedAllele) # replace with new allele column
 ```
 
-Now I'm going to go back through ckmrsim and see what happens.
+Now we run the new bi-allelic data into CKMRsim.
+
+#### CKMRsim on newly biallelic data
 
 Calculate allele frequencies:
 
 ```{r}
-bigcreekalle_freqs <- bigcreek_lumpy %>%
+bigcreek_greedy_alle_freqs <- bigcreek_lumpy %>%
   count(Locus, Allele) %>%
   group_by(Locus) %>%
   mutate(Freq = n / sum(n),
@@ -168,7 +177,7 @@ bigcreekalle_freqs <- bigcreek_lumpy %>%
 ```
 
 ```{r}
-afreqs_ready <- reindex_markers(bigcreekalle_freqs)
+afreqs_ready <- reindex_markers(bigcreek_greedy_alle_freqs)
 ```
 
 Create a ckmr object
@@ -194,7 +203,7 @@ bigcreek_Qs <- simulate_Qij(bigcreek_ckmr_lumpy,
 bigcreek_Qs
 ```
 
-**Compute log-likelihood ratios to view them**
+#### Visualize
 
 ```{r}
 bigcreek_FS_U_logls <- extract_logls(bigcreek_Qs,
@@ -204,18 +213,16 @@ bigcreek_FS_U_logls <- extract_logls(bigcreek_Qs,
 bigcreek_FS_U_logls
 ```
 
-**Visualize**
-
 ```{r}
 ggplot(bigcreek_FS_U_logls,
             aes(x = logl_ratio, fill = true_relat)) +
-  geom_density(alpha = 0.25)
+  geom_density(alpha = 0.25)+
+  labs(title= "Big Creek Relatedness Likelihood, Biallelic")
 ```
 
 Check to make sure there are truly no identical individuals (there shouldn't be):
 
 ```{r}
-
 bigcreek_lumpy_long_genos = bigcreek_lumpy %>% 
   dplyr::select(-c(Pos,Chrom))
 matchers <- find_close_matching_genotypes(LG = bigcreek_lumpy_long_genos,
@@ -224,9 +231,7 @@ matchers <- find_close_matching_genotypes(LG = bigcreek_lumpy_long_genos,
 matchers
 ```
 
-Alright, so it worked!! Great! Let's see how many full sibs we have.
-
-First, set loglr:
+#### Check for full-sibs with bi-allelic data
 
 ```{r}
 bigcreek_FS_is <- mc_sample_simple(bigcreek_Qs, 
@@ -267,9 +272,9 @@ We find 262 pairs. What about trios?
 
 One of the next steps will be to build a sibling network and pull out groups. The goal should be to develop a workflow for each population that can be replicated for all other populations. During this network analysis, it will be important to consider year, as well.
 
-# Pivot wider
+### Prep data for matrix
 
-I need to pivot the whole genome wider so that individuals stay as rows, but the loci and allele copies become columns.
+To use this data frame to construct a matrix, the whole genome data frame (converted to bi-allelic) needs to be pivoted wider so that individuals stay as rows, but the loci and allele copies become columns.
 
 ```{r}
 bigcreek_wider <- bigcreek_lumpy_long_genos %>% 
@@ -280,14 +285,19 @@ bigcreek_wider <- bigcreek_lumpy_long_genos %>%
   )
 ```
 
-To prepare it for AGH matrix, I now need to convert it into allele dosages. I will write this code with help of ChatGPT:
+#### Allele dosages
 
-0 = zero copies of the reference allele 1 = one copy of the reference allele 2 = two copies of the reference allele NA = missing genotype
+To prepare it for AGH matrix, I now need to convert it into allele dosages. I wrote this code with the help of ChatGPT:
+
+-   0 = zero copies of the reference allele
+
+-   1 = one copy of the reference allele
+
+-   2 = two copies of the reference allele
+
+-   NA = missing genotype
 
 ```{r}
-library(dplyr)
-library(stringr)
-
 # Find the first allele-copy column for each locus, ending in .1
 copy1_cols <- names(bigcreek_wider)[str_ends(names(bigcreek_wider), "\\.1$")]
 
@@ -337,161 +347,1136 @@ for (col1 in copy1_cols) {
       (bigcreek_wider[[col2]] == ref_allele)
   )
 }
+
+write.csv(bigcreek_dosage, file = "Data/Populations/bigcreek_alleledosage.csv")
 ```
 
 ```{r}
-table(
-  unlist(bigcreek_dosage[, -1]),
-  useNA = "always"
+#table(
+ # unlist(bigcreek_dosage[, -1]),
+#  useNA = "always"
+#)
+```
+
+This appeared to work- we have half the number of observations as the full data frame, indicating one column per gene.
+
+# 2) Scott Creek
+Follow the same steps as above.
+
+```{r}
+scottcreek <- read.csv("Data/Populations/scottcreek_cleaned_snps_mhaps.csv")
+nc <- ncol(scottcreek)
+loci <- str_replace(names(scottcreek)[seq(2, nc, by = 2)], "\\.1$", "")
+```
+
+Read in .rds file for Scott Creek.
+
+```{r}
+scottcreek_freq = read_rds("Data/Populations/scottcreek_allelefreqs.rds")
+str(scottcreek_freq$Allele)
+
+sc_lumpy <- scottcreek_freq %>%
+  group_by(Chrom, Pos, Locus) %>%
+  nest() %>%
+  mutate(
+    lumps = map(.x = data, .f = function(x) { # map applies a function to each element of a list and returns a list
+      v <- x$Freq
+      names(v) <- x$Allele
+      partition_greedy(v)
+    })
+  ) %>%
+  unnest(cols = c(data, lumps)) %>%
+  ungroup()
+
+sc_lumpy
+```
+
+```{r}
+sc_new_freqs <- sc_lumpy %>%
+  group_by(Chrom, Pos, Locus, LumpedAllele) %>%
+  summarise(
+    LumpedFreq = sum(FreqOrig),
+    orig_num_alle = n()
+  )
+
+sc_new_freqs
+```
+
+Visualize.
+```{r}
+MAFs <- sc_new_freqs %>%
+  filter(LumpedFreq == min(LumpedFreq)) %>%
+  rename(MAF = LumpedFreq) %>%
+  mutate(
+    type = case_when(
+      str_detect(Locus, "(hap1_code|haplotype)$") ~ "mhap",
+      TRUE ~ "SNP"
+    )
+  )
+
+ggplot(MAFs, aes(x = MAF, fill = type)) +
+  geom_histogram(binwidth = 0.01, color="black") +
+  facet_wrap(~ type, ncol = 1)+
+  labs(y="",
+       x= "MAF",
+       title="Scott Creek Greedy Alg. MAF")+
+  theme_bw()
+MAFs %>% 
+  filter(MAF > 0.9)
+
+scottcreek 
+```
+
+```{r}
+joiner = sc_lumpy %>% 
+  dplyr::select(Chrom, Pos, Locus, AlleleOrig, LumpedAllele)
+```
+
+This data frame can then be joined with the long_genos data frame created in the the CKMR.Populations file. E. Anderson recommends using by = join_by(Chrom, Pos, Locus, Allele == AlleleOrig)
+
+#### Read in long genos file
+
+```{r}
+sc_lg <- read_rds("Data/Populations/scottcreek_longgenos.rds")
+```
+
+Join by locus.
+
+```{r}
+scottcreek_lumpy = left_join(
+  sc_lg, joiner, 
+  by =  join_by(Locus, Allele == AlleleOrig)) %>% 
+  dplyr::select(-Allele) %>%  # need to delete old allele column
+  rename(Allele = LumpedAllele) # replace with new allele column
+```
+
+Now we run the new bi-allelic data into CKMRsim.
+
+#### CKMRsim on newly biallelic data
+
+Calculate allele frequencies:
+
+```{r}
+scottcreek_greedy_alle_freqs <- scottcreek_lumpy %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+```
+
+```{r}
+afreqs_ready <- reindex_markers(scottcreek_greedy_alle_freqs)
+```
+
+Create a ckmr object
+
+```{r}
+scottcreek_ckmr_lumpy <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("PO","FS","U","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
 )
+scottcreek_ckmr_lumpy
 ```
 
-I think this worked (but minimally checked ChatGPT's work on this, so not sure). I'll keep going and try the AGHmatrix code, which should be able to work directly with this.
+```{r}
+scottcreek_Qs <- simulate_Qij(scottcreek_ckmr_lumpy, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+scottcreek_Qs
+```
 
-# VanRaden matrix
+#### Visualize
 
 ```{r}
-#Computing the additive relationship matrix based on VanRaden 2008
-library(AGHmatrix)
+scottcreek_FS_U_logls <- extract_logls(scottcreek_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
 
-# Make a copy so we don't alter the original data
-bigcreek_G <- bigcreek_dosage
-bigcreek_IDs <- bigcreek_dosage$Indiv
+scottcreek_FS_U_logls
+```
 
-# Remove the individual ID column
-bigcreek_G <- bigcreek_G[, -1]
+```{r}
+ggplot(scottcreek_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)+
+  labs(title= "Scott Creek Relatedness Likelihood, Biallelic")
+```
 
+Check to make sure there are truly no identical individuals (there shouldn't be):
 
-# Convert the genotype data to numeric
-bigcreek_G <- as.data.frame(
-  lapply(bigcreek_G, as.numeric)
+```{r}
+scottcreek_lumpy_long_genos = scottcreek_lumpy %>% 
+  dplyr::select(-c(Pos,Chrom))
+matchers <- find_close_matching_genotypes(LG = scottcreek_lumpy_long_genos,
+                                          CK = scottcreek_ckmr_lumpy,
+                                          max_mismatch = 6)
+matchers
+```
+
+No matchers found. 
+
+#### Check for full-sibs with bi-allelic data
+
+```{r}
+scottcreek_FS_is <- mc_sample_simple(scottcreek_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+scottcreek_FS_is
+
+#find where FNR > 0.01
+scottcreek_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+
+```
+Using a FNR threshold of 0.01, lambda should be set to 9 or 10 (calculated value: 9.45).
+
+```{r}
+scottcreek_lumpy_pairwise_logls <- pairwise_kin_logl_ratios(
+                                              D1 = scottcreek_lumpy_long_genos,
+                                              D2 = scottcreek_lumpy_long_genos,
+                                              CK = scottcreek_ckmr_lumpy,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+```
+
+Pairs with logLR greater than 10:
+
+```{r}
+scottcreeksibs<- scottcreek_lumpy_pairwise_logls %>%
+  filter(logl_ratio > 9) %>%
+  arrange(desc(logl_ratio))
+```
+
+We find 271 pairs. 
+
+### Prep data for matrix
+
+To use this data frame to construct a matrix, the whole genome data frame (converted to bi-allelic) needs to be pivoted wider so that individuals stay as rows, but the loci and allele copies become columns.
+
+```{r}
+scottcreek_wider <- scottcreek_lumpy_long_genos %>% 
+  pivot_wider(
+    names_from = c(Locus, gene_copy),
+    values_from = Allele,
+    names_sep = "."
+  )
+```
+
+#### Allele dosages
+
+To prepare it for AGH matrix, I now need to convert it into allele dosages. I wrote this code with the help of ChatGPT:
+
+-   0 = zero copies of the reference allele
+
+-   1 = one copy of the reference allele
+
+-   2 = two copies of the reference allele
+
+-   NA = missing genotype
+
+```{r}
+# Find the first allele-copy column for each locus, ending in .1
+copy1_cols <- names(scottcreek_wider)[str_ends(names(scottcreek_wider), "\\.1$")]
+
+# Start the dosage dataframe with individual ID (keep Indiv column)
+scottcreek_dosage <- data.frame(
+  Indiv = scottcreek_wider$Indiv
 )
 
+# Convert each pair of allele columns to dosage
+for (col1 in copy1_cols) {
+  
+  # Find the matching second allele column
+  col2 <- str_replace(col1, "\\.1$", ".2")
+  
+  # Get the locus name
+  locus <- str_remove(col1, "\\.1$")
+  
+  # Find alleles present at this locus
+  alleles <- sort(unique(c(
+    scottcreek_wider[[col1]],
+    scottcreek_wider[[col2]]
+  )))
+  
+  # Remove NA from the list of alleles
+  alleles <- alleles[!is.na(alleles)]
+  
+  # Check that the locus is biallelic
+  if (length(alleles) > 2) {
+    warning(
+      paste(
+        locus,
+        "has", length(alleles),
+        "alleles:", paste(alleles, collapse = ", ")
+      )
+    )
+  }
+  
+  # Choose the first allele as the allele being counted
+  ref_allele <- alleles[1]
+  
+  # Calculate dosage
+  scottcreek_dosage[[locus]] <- ifelse(
+    is.na(scottcreek_wider[[col1]]) |
+      is.na(scottcreek_wider[[col2]]),
+    NA,
+    (scottcreek_wider[[col1]] == ref_allele) +
+      (scottcreek_wider[[col2]] == ref_allele)
+  )
+}
 
-# Replace NA with -9
-bigcreek_G[is.na(bigcreek_G)] <- -9
+write.csv(scottcreek_dosage, file = "Data/Populations/scottcreek_alleledosage.csv")
+```
 
+# 3) Carmel River
+Follow the same steps as above.
 
-# Convert the data frame to a numeric matrix
-bigcreek_G <- as.matrix(bigcreek_G)
+```{r}
+carmelriver <- read.csv("Data/Populations/carmelriver_cleaned_snps_mhaps.csv")
+nc <- ncol(carmelriver)
+loci <- str_replace(names(carmelriver)[seq(2, nc, by = 2)], "\\.1$", "")
+```
 
+Now I'll read in my first .rds file. This file is just for Big Creek.
 
-# Check the structure
-class(bigcreek_G)
-mode(bigcreek_G)
+```{r}
+carmelriver_freq = read_rds("Data/Populations/carmelriver_allelefreqs.rds")
+str(carmelriver_freq$Allele)
+# Run the algorithm
+cr_lumpy <- carmelriver_freq %>%
+  group_by(Chrom, Pos, Locus) %>%
+  nest() %>%
+  mutate(
+    lumps = map(.x = data, .f = function(x) { # map applies a function to each element of a list and returns a list
+      v <- x$Freq
+      names(v) <- x$Allele
+      partition_greedy(v)
+    })
+  ) %>%
+  unnest(cols = c(data, lumps)) %>%
+  ungroup()
 
-G_VanRadenPine <- Gmatrix(
-  SNPmatrix = bigcreek_G,
-  missingValue = -9,
-  maf = 0.05,
-  method = "VanRaden"
+cr_lumpy
+```
+
+```{r}
+cr_new_freqs <- cr_lumpy %>%
+  group_by(Chrom, Pos, Locus, LumpedAllele) %>%
+  summarise(
+    LumpedFreq = sum(FreqOrig),
+    orig_num_alle = n()
+  )
+
+cr_new_freqs
+```
+
+Visualize.
+```{r}
+MAFs <- cr_new_freqs %>%
+  filter(LumpedFreq == min(LumpedFreq)) %>%
+  rename(MAF = LumpedFreq) %>%
+  mutate(
+    type = case_when(
+      str_detect(Locus, "(hap1_code|haplotype)$") ~ "mhap",
+      TRUE ~ "SNP"
+    )
+  )
+
+ggplot(MAFs, aes(x = MAF, fill = type)) +
+  geom_histogram(binwidth = 0.01, color="black") +
+  facet_wrap(~ type, ncol = 1)+
+  labs(y="",
+       x= "MAF",
+       title="Carmel River Greedy Alg. MAF")+
+  theme_bw()
+```
+
+```{r}
+joiner = cr_lumpy %>% 
+  dplyr::select(Chrom, Pos, Locus, AlleleOrig, LumpedAllele)
+```
+
+This data frame can then be joined with the long_genos data frame created in the the CKMR.Populations file. E. Anderson recommends using by = join_by(Chrom, Pos, Locus, Allele == AlleleOrig)
+
+#### Read in long genos file
+
+```{r}
+lg <- read_rds("Data/Populations/carmelriver_longgenos.rds")
+```
+
+Join by locus? I don't fully understand how we're not losing data here.
+
+```{r}
+carmelriver_lumpy = left_join(
+  lg, joiner, 
+  by =  join_by(Locus, Allele == AlleleOrig)) %>% 
+  dplyr::select(-Allele) %>%  # need to delete old allele column
+  rename(Allele = LumpedAllele) # replace with new allele column
+```
+
+Now we run the new bi-allelic data into CKMRsim.
+
+#### CKMRsim on newly biallelic data
+
+Calculate allele frequencies:
+
+```{r}
+carmelriver_greedy_alle_freqs <- carmelriver_lumpy %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+```
+
+```{r}
+afreqs_ready <- reindex_markers(carmelriver_greedy_alle_freqs)
+```
+
+Create a ckmr object
+
+```{r}
+carmelriver_ckmr_lumpy <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("PO","FS","U","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
 )
+carmelriver_ckmr_lumpy
 ```
 
 ```{r}
-# ------------------------------------------------------------
-# Add individual IDs to the genomic relationship matrix
-# ------------------------------------------------------------
+carmelriver_Qs <- simulate_Qij(carmelriver_ckmr_lumpy, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+carmelriver_Qs
+```
 
-# Add individual IDs as row names
-rownames(G_VanRadenPine) <- bigcreek_IDs
+#### Visualize
 
-# Add individual IDs as column names
-colnames(G_VanRadenPine) <- bigcreek_IDs
+```{r}
+carmelriver_FS_U_logls <- extract_logls(carmelriver_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
 
-
-# ------------------------------------------------------------
-# Look at the resulting relationship matrix
-# ------------------------------------------------------------
-
-G_VanRadenPine[1:10, 1:10]
+carmelriver_FS_U_logls
 ```
 
 ```{r}
-library(ggplot2)
-library(reshape2)
-
-# make the matrix into long format for plotting
-longM <- melt(G_VanRadenPine)
-max(longM$value)
-
-ggplot(longM, aes(Var1, Var2, fill = value)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
-                       midpoint = 0, limit = c(-2,2), space = "Lab") +
-  theme_minimal() +
-  theme(axis.text = element_text(angle = 45, hjust = 1, size = 2))+
-  coord_fixed()
-
-ggsave("BigCreek.Matrix.png", width = 5, height = 5, units = "in")
+ggplot(carmelriver_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)+
+  labs(title= "Big Creek Relatedness Likelihood, Biallelic")
 ```
 
-Let's make a histogram
+Check to make sure there are truly no identical individuals (there shouldn't be):
 
 ```{r}
-ggplot(longM, aes(x=value))+
-  geom_histogram(binwidth = 0.05,
-                 fill= "gray",
-                 color = "black")+
-  labs(x= "Relatedness",
-       y = "",
-       title = "Distribution of pairwise relatedness values in Big Creek Matrix")
+carmelriver_lumpy_long_genos = carmelriver_lumpy %>% 
+  dplyr::select(-c(Pos,Chrom))
+matchers <- find_close_matching_genotypes(LG = carmelriver_lumpy_long_genos,
+                                          CK = carmelriver_ckmr_lumpy,
+                                          max_mismatch = 6)
+matchers
 ```
 
-Try inverting:
+#### Check for full-sibs with bi-allelic data
 
 ```{r}
-G.inv <- solve(G_VanRadenPine)
+carmelriver_FS_is <- mc_sample_simple(carmelriver_Qs, 
+                 nu = "FS",
+                 de = "U")
 
-# Add individual IDs as row names
-rownames(G.inv) <- bigcreek_IDs
+carmelriver_FS_is
 
-# Add individual IDs as column names
-colnames(G.inv) <- bigcreek_IDs
+#find where FNR > 0.01
+carmelriver_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
 
-# check the determinant.
-det(G_VanRadenPine)
+```
+I will set the lambda to 11.
+```{r}
+carmelriver_lumpy_pairwise_logls <- pairwise_kin_logl_ratios(
+                                              D1 = carmelriver_lumpy_long_genos,
+                                              D2 = carmelriver_lumpy_long_genos,
+                                              CK = carmelriver_ckmr_lumpy,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
 ```
 
-The determinant is very close to 0- not promising.
+Pairs with logLR greater than 11:
 
 ```{r}
-eigen_G <- eigen(G_VanRadenPine, symmetric = TRUE)
+carmelriversibs<- carmelriver_lumpy_pairwise_logls %>%
+  filter(logl_ratio > 11) %>%
+  arrange(desc(logl_ratio))
+```
 
-eigen_G$values
-min(eigen_G$values)
+We find 22 pairs.Before the biallelic conversion, we found 23. 
 
+### Prep data for matrix
+
+To use this data frame to construct a matrix, the whole genome data frame (converted to bi-allelic) needs to be pivoted wider so that individuals stay as rows, but the loci and allele copies become columns.
+
+```{r}
+carmelriver_wider <- carmelriver_lumpy_long_genos %>% 
+  pivot_wider(
+    names_from = c(Locus, gene_copy),
+    values_from = Allele,
+    names_sep = "."
+  )
+```
+
+#### Allele dosages
+
+To prepare it for AGH matrix, I now need to convert it into allele dosages. I wrote this code with the help of ChatGPT:
+
+-   0 = zero copies of the reference allele
+
+-   1 = one copy of the reference allele
+
+-   2 = two copies of the reference allele
+
+-   NA = missing genotype
+
+```{r}
+# Find the first allele-copy column for each locus, ending in .1
+copy1_cols <- names(carmelriver_wider)[str_ends(names(carmelriver_wider), "\\.1$")]
+
+# Start the dosage dataframe with individual ID (keep Indiv column)
+carmelriver_dosage <- data.frame(
+  Indiv = carmelriver_wider$Indiv
+)
+
+# Convert each pair of allele columns to dosage
+for (col1 in copy1_cols) {
+  
+  # Find the matching second allele column
+  col2 <- str_replace(col1, "\\.1$", ".2")
+  
+  # Get the locus name
+  locus <- str_remove(col1, "\\.1$")
+  
+  # Find alleles present at this locus
+  alleles <- sort(unique(c(
+    carmelriver_wider[[col1]],
+    carmelriver_wider[[col2]]
+  )))
+  
+  # Remove NA from the list of alleles
+  alleles <- alleles[!is.na(alleles)]
+  
+  # Check that the locus is biallelic
+  if (length(alleles) > 2) {
+    warning(
+      paste(
+        locus,
+        "has", length(alleles),
+        "alleles:", paste(alleles, collapse = ", ")
+      )
+    )
+  }
+  
+  # Choose the first allele as the allele being counted
+  ref_allele <- alleles[1]
+  
+  # Calculate dosage
+  carmelriver_dosage[[locus]] <- ifelse(
+    is.na(carmelriver_wider[[col1]]) |
+      is.na(carmelriver_wider[[col2]]),
+    NA,
+    (carmelriver_wider[[col1]] == ref_allele) +
+      (carmelriver_wider[[col2]] == ref_allele)
+  )
+}
+
+write.csv(carmelriver_dosage, file = "Data/Populations/carmelriver_alleledosage.csv")
+```
+
+# 4) Napa River
+Follow the same steps as above.
+
+```{r}
+napariver <- read.csv("Data/Populations/napariver_cleaned_snps_mhaps.csv")
+nc <- ncol(napariver)
+loci <- str_replace(names(napariver)[seq(2, nc, by = 2)], "\\.1$", "")
+```
+
+Now I'll read in my first .rds file. This file is just for Big Creek.
+
+```{r}
+napariver_freq = read_rds("Data/Populations/napariver_allelefreqs.rds")
+str(napariver_freq$Allele)
+
+nr_lumpy <- napariver_freq %>%
+  group_by(Chrom, Pos, Locus) %>%
+  nest() %>%
+  mutate(
+    lumps = map(.x = data, .f = function(x) { # map applies a function to each element of a list and returns a list
+      v <- x$Freq
+      names(v) <- x$Allele
+      partition_greedy(v)
+    })
+  ) %>%
+  unnest(cols = c(data, lumps)) %>%
+  ungroup()
+
+nr_lumpy
 ```
 
 ```{r}
-max(eigen_G$values)
+nr_new_freqs <- nr_lumpy %>%
+  group_by(Chrom, Pos, Locus, LumpedAllele) %>%
+  summarise(
+    LumpedFreq = sum(FreqOrig),
+    orig_num_alle = n()
+  )
+
+nr_new_freqs
 ```
 
-According to ChatGPT, the eigenvalues indicate a strong matrix for inversion. Yay! The next step will be to make a heat map of the matrix to make sure it worked.
+Visualize.
+```{r}
+MAFs <- nr_new_freqs %>%
+  filter(LumpedFreq == min(LumpedFreq)) %>%
+  rename(MAF = LumpedFreq) %>%
+  mutate(
+    type = case_when(
+      str_detect(Locus, "(hap1_code|haplotype)$") ~ "mhap",
+      TRUE ~ "SNP"
+    )
+  )
+
+ggplot(MAFs, aes(x = MAF, fill = type)) +
+  geom_histogram(binwidth = 0.01, color="black") +
+  facet_wrap(~ type, ncol = 1)+
+  labs(y="",
+       x= "MAF",
+       title="Napa River Greedy Alg. MAF")+
+  theme_bw()
+
+MAFs %>% 
+  filter(MAF >0.9)
+
+napariver %>%
+  count(tag_id_4933_hap1_code.2, sort = TRUE)
+```
 
 ```{r}
-library(MCMCglmm)
+joiner = nr_lumpy %>% 
+  dplyr::select(Chrom, Pos, Locus, AlleleOrig, LumpedAllele)
+```
+
+This data frame can then be joined with the long_genos data frame created in the the CKMR.Populations file. E. Anderson recommends using by = join_by(Chrom, Pos, Locus, Allele == AlleleOrig)
+
+#### Read in long genos file
+
+```{r}
+lg <- read_rds("Data/Populations/napariver_longgenos.rds")
+```
+
+Join by locus.
+
+```{r}
+napariver_lumpy = left_join(
+  lg, joiner, 
+  by =  join_by(Locus, Allele == AlleleOrig)) %>% 
+  dplyr::select(-Allele) %>%  # need to delete old allele column
+  rename(Allele = LumpedAllele) # replace with new allele column
+```
+
+Now we run the new bi-allelic data into CKMRsim.
+
+#### CKMRsim on newly biallelic data
+
+Calculate allele frequencies:
+
+```{r}
+napariver_greedy_alle_freqs <- napariver_lumpy %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
 ```
 
 ```{r}
-ctmax <- read.csv(here("Genomics/Data/Omy5_inversion_metadata_merge.csv"))
-bigcreek_pheno <- ctmax %>% 
-  filter(WATERSHED == "Big Creek") %>% 
-  rename(Indiv = NMFS_DNA_ID_use) %>% 
-  filter(!Indiv %in% c("M145524", "M145542"))
-
-str(bigcreek_pheno$Treatment)
-bigcreek_pheno$Treatment = as.character(bigcreek_pheno$Treatment)
-
-class(G.inv)
-# make the matrix into a sparse format
-G.inv <- Matrix(G.inv, sparse = TRUE)
-
-model1.2 <- MCMCglmm(LOE.Temp_C ~ 1 + Treatment, #Response and Fixed effect formula
-                   random = ~Indiv, # Random effect formula
-          ginverse = list(Indiv = G.inv), # correlations among random effect levels (here breeding values)
-          data = bigcreek_pheno)
-summary(model1.2)
+afreqs_ready <- reindex_markers(napariver_greedy_alle_freqs)
 ```
 
-Wow it worked! The next steps will be taking a slower walk through setting priors, checking how well the model ran, and interpreting the results.
+Create a ckmr object
+
+```{r}
+napariver_ckmr_lumpy <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("PO","FS","U","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+napariver_ckmr_lumpy
+```
+
+```{r}
+napariver_Qs <- simulate_Qij(napariver_ckmr_lumpy, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+napariver_Qs
+```
+
+#### Visualize
+
+```{r}
+napariver_FS_U_logls <- extract_logls(napariver_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+napariver_FS_U_logls
+```
+
+```{r}
+ggplot(napariver_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)+
+  labs(title= "Napa River Relatedness Likelihood, Biallelic")
+```
+
+Check to make sure there are truly no identical individuals (there shouldn't be):
+
+```{r}
+napariver_lumpy_long_genos = napariver_lumpy %>% 
+  dplyr::select(-c(Pos,Chrom))
+matchers <- find_close_matching_genotypes(LG = napariver_lumpy_long_genos,
+                                          CK = napariver_ckmr_lumpy,
+                                          max_mismatch = 6)
+matchers
+```
+
+#### Check for full-sibs with bi-allelic data
+
+```{r}
+napariver_FS_is <- mc_sample_simple(napariver_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+napariver_FS_is
+
+#find where FNR > 0.01
+napariver_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+
+```
+Set lambda to 9.
+
+```{r}
+napariver_lumpy_pairwise_logls <- pairwise_kin_logl_ratios(
+                                              D1 = napariver_lumpy_long_genos,
+                                              D2 = napariver_lumpy_long_genos,
+                                              CK = napariver_ckmr_lumpy,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+```
+
+Pairs with logLR greater than 9:
+
+```{r}
+napariversibs<- napariver_lumpy_pairwise_logls %>%
+  filter(logl_ratio > 9) %>%
+  arrange(desc(logl_ratio))
+```
+
+We find 83 pairs.
+
+### Prep data for matrix
+
+To use this data frame to construct a matrix, the whole genome data frame (converted to bi-allelic) needs to be pivoted wider so that individuals stay as rows, but the loci and allele copies become columns.
+
+```{r}
+napariver_wider <- napariver_lumpy_long_genos %>% 
+  pivot_wider(
+    names_from = c(Locus, gene_copy),
+    values_from = Allele,
+    names_sep = "."
+  )
+```
+
+#### Allele dosages
+
+To prepare it for AGH matrix, I now need to convert it into allele dosages. I wrote this code with the help of ChatGPT:
+
+-   0 = zero copies of the reference allele
+
+-   1 = one copy of the reference allele
+
+-   2 = two copies of the reference allele
+
+-   NA = missing genotype
+
+```{r}
+# Find the first allele-copy column for each locus, ending in .1
+copy1_cols <- names(napariver_wider)[str_ends(names(napariver_wider), "\\.1$")]
+
+# Start the dosage dataframe with individual ID (keep Indiv column)
+napariver_dosage <- data.frame(
+  Indiv = napariver_wider$Indiv
+)
+
+# Convert each pair of allele columns to dosage
+for (col1 in copy1_cols) {
+  
+  # Find the matching second allele column
+  col2 <- str_replace(col1, "\\.1$", ".2")
+  
+  # Get the locus name
+  locus <- str_remove(col1, "\\.1$")
+  
+  # Find alleles present at this locus
+  alleles <- sort(unique(c(
+    napariver_wider[[col1]],
+    napariver_wider[[col2]]
+  )))
+  
+  # Remove NA from the list of alleles
+  alleles <- alleles[!is.na(alleles)]
+  
+  # Check that the locus is biallelic
+  if (length(alleles) > 2) {
+    warning(
+      paste(
+        locus,
+        "has", length(alleles),
+        "alleles:", paste(alleles, collapse = ", ")
+      )
+    )
+  }
+  
+  # Choose the first allele as the allele being counted
+  ref_allele <- alleles[1]
+  
+  # Calculate dosage
+  napariver_dosage[[locus]] <- ifelse(
+    is.na(napariver_wider[[col1]]) |
+      is.na(napariver_wider[[col2]]),
+    NA,
+    (napariver_wider[[col1]] == ref_allele) +
+      (napariver_wider[[col2]] == ref_allele)
+  )
+}
+
+write.csv(napariver_dosage, file = "Data/Populations/napariver_alleledosage.csv")
+```
+
+# 5) Russian River
+Follow the same steps as above.
+
+```{r}
+russianriver <- read.csv("Data/Populations/russianriver_cleaned_snps_mhaps.csv")
+nc <- ncol(russianriver)
+loci <- str_replace(names(russianriver)[seq(2, nc, by = 2)], "\\.1$", "")
+sum(is.na(russianriver)) # double check no NA values
+```
+
+Read in allele frequency rds file.
+
+```{r}
+russianriver_freq = read_rds("Data/Populations/russianriver_allelefreqs.rds")
+str(russianriver_freq$Allele)
+
+rr_lumpy <- russianriver_freq %>%
+  group_by(Chrom, Pos, Locus) %>%
+  nest() %>%
+  mutate(
+    lumps = map(.x = data, .f = function(x) { # map applies a function to each element of a list and returns a list
+      v <- x$Freq
+      names(v) <- x$Allele
+      partition_greedy(v)
+    })
+  ) %>%
+  unnest(cols = c(data, lumps)) %>%
+  ungroup()
+
+rr_lumpy
+```
+
+```{r}
+rr_new_freqs <- rr_lumpy %>%
+  group_by(Chrom, Pos, Locus, LumpedAllele) %>%
+  summarise(
+    LumpedFreq = sum(FreqOrig),
+    orig_num_alle = n()
+  )
+
+rr_new_freqs
+```
+
+Visualize.
+```{r}
+MAFs <- rr_new_freqs %>%
+  filter(LumpedFreq == min(LumpedFreq)) %>%
+  rename(MAF = LumpedFreq) %>%
+  mutate(
+    type = case_when(
+      str_detect(Locus, "(hap1_code|haplotype)$") ~ "mhap",
+      TRUE ~ "SNP"
+    )
+  )
+
+
+ggplot(MAFs, aes(x = MAF, fill = type)) +
+  geom_histogram(binwidth = 0.01, color="black") +
+  facet_wrap(~ type, ncol = 1)+
+  labs(y="",
+       x= "MAF",
+       title="Big Creek Greedy Alg. MAF")+
+  theme_bw()
+```
+
+```{r}
+joiner = rr_lumpy %>% 
+  dplyr::select(Chrom, Pos, Locus, AlleleOrig, LumpedAllele)
+```
+
+This data frame can then be joined with the long_genos data frame created in the the CKMR.Populations file. E. Anderson recommends using by = join_by(Chrom, Pos, Locus, Allele == AlleleOrig)
+
+#### Read in long genos file
+
+```{r}
+lg <- read_rds("Data/Populations/russianriver_longgenos.rds")
+```
+
+Join by locus? I don't fully understand how we're not losing data here.
+
+```{r}
+russianriver_lumpy = left_join(
+  lg, joiner, 
+  by =  join_by(Locus, Allele == AlleleOrig)) %>% 
+  dplyr::select(-Allele) %>%  # need to delete old allele column
+  rename(Allele = LumpedAllele) # replace with new allele column
+```
+
+Now we run the new bi-allelic data into CKMRsim.
+
+#### CKMRsim on newly biallelic data
+
+Calculate allele frequencies:
+
+```{r}
+russianriver_greedy_alle_freqs <- russianriver_lumpy %>%
+  count(Locus, Allele) %>%
+  group_by(Locus) %>%
+  mutate(Freq = n / sum(n),
+         Chrom = "Unk",
+         Pos = as.integer(factor(Locus, levels = loci))) %>%
+  ungroup() %>%
+  dplyr::select(Chrom, Pos, Locus, Allele, Freq) %>%
+  arrange(Pos, desc(Freq)) %>%
+  mutate(AlleIdx = NA,
+         LocIdx = NA) %>%
+  filter(!is.na(Allele))
+```
+
+```{r}
+afreqs_ready <- reindex_markers(russianriver_greedy_alle_freqs)
+```
+
+Create a ckmr object
+
+```{r}
+russianriver_ckmr_lumpy <- create_ckmr(
+  D = afreqs_ready,
+  kappa_matrix = kappas[c("PO","FS","U","HS"), ],
+  ge_mod_assumed = ge_model_TGIE,
+  ge_mod_true = ge_model_TGIE,
+  ge_mod_assumed_pars_list = list(epsilon = 0.005),
+  ge_mod_true_pars_list = list(epsilon = 0.005)
+)
+russianriver_ckmr_lumpy
+```
+
+```{r}
+russianriver_Qs <- simulate_Qij(russianriver_ckmr_lumpy, 
+                       calc_relats = c("FS", "U","PO"),
+                       sim_relats = c("FS",  "U","HS","PO") )
+russianriver_Qs
+```
+
+#### Visualize
+
+```{r}
+russianriver_FS_U_logls <- extract_logls(russianriver_Qs,
+                            numer = c(FS = 1),
+                            denom = c(U = 1))
+
+russianriver_FS_U_logls
+```
+
+```{r}
+ggplot(russianriver_FS_U_logls,
+            aes(x = logl_ratio, fill = true_relat)) +
+  geom_density(alpha = 0.25)+
+  labs(title= "Russian River Relatedness Likelihood, Biallelic")
+```
+
+Check to make sure there are truly no identical individuals (there shouldn't be):
+
+```{r}
+russianriver_lumpy_long_genos = russianriver_lumpy %>% 
+  dplyr::select(-c(Pos,Chrom))
+matchers <- find_close_matching_genotypes(LG = russianriver_lumpy_long_genos,
+                                          CK = russianriver_ckmr_lumpy,
+                                          max_mismatch = 6)
+matchers
+```
+
+#### Check for full-sibs with bi-allelic data
+
+```{r}
+russianriver_FS_is <- mc_sample_simple(russianriver_Qs, 
+                 nu = "FS",
+                 de = "U")
+
+russianriver_FS_is
+
+#find where FNR > 0.01
+russianriver_FS_is %>%
+  filter(FNR == 0.01) %>%
+  arrange(FNR) %>%
+  slice(1)
+
+```
+Set lambda to 10.
+
+```{r}
+russianriver_lumpy_pairwise_logls <- pairwise_kin_logl_ratios(
+                                              D1 = russianriver_lumpy_long_genos,
+                                              D2 = russianriver_lumpy_long_genos,
+                                              CK = russianriver_ckmr_lumpy,
+                                              numer = "FS",
+                                              denom = "U", 
+                                              num_cores = 1)
+```
+
+Pairs with logLR greater than 10:
+
+```{r}
+russianriversibs<- russianriver_lumpy_pairwise_logls %>%
+  filter(logl_ratio > 10) %>%
+  arrange(desc(logl_ratio))
+```
+
+34 sibling pairs.
+
+### Prep data for matrix
+
+To use this data frame to construct a matrix, the whole genome data frame (converted to bi-allelic) needs to be pivoted wider so that individuals stay as rows, but the loci and allele copies become columns.
+
+```{r}
+russianriver_wider <- russianriver_lumpy_long_genos %>% 
+  pivot_wider(
+    names_from = c(Locus, gene_copy),
+    values_from = Allele,
+    names_sep = "."
+  )
+```
+
+#### Allele dosages
+
+To prepare it for AGH matrix, I now need to convert it into allele dosages. I wrote this code with the help of ChatGPT:
+
+-   0 = zero copies of the reference allele
+
+-   1 = one copy of the reference allele
+
+-   2 = two copies of the reference allele
+
+-   NA = missing genotype
+
+```{r}
+# Find the first allele-copy column for each locus, ending in .1
+copy1_cols <- names(russianriver_wider)[str_ends(names(russianriver_wider), "\\.1$")]
+
+# Start the dosage dataframe with individual ID (keep Indiv column)
+russianriver_dosage <- data.frame(
+  Indiv = russianriver_wider$Indiv
+)
+
+# Convert each pair of allele columns to dosage
+for (col1 in copy1_cols) {
+  
+  # Find the matching second allele column
+  col2 <- str_replace(col1, "\\.1$", ".2")
+  
+  # Get the locus name
+  locus <- str_remove(col1, "\\.1$")
+  
+  # Find alleles present at this locus
+  alleles <- sort(unique(c(
+    russianriver_wider[[col1]],
+    russianriver_wider[[col2]]
+  )))
+  
+  # Remove NA from the list of alleles
+  alleles <- alleles[!is.na(alleles)]
+  
+  # Check that the locus is biallelic
+  if (length(alleles) > 2) {
+    warning(
+      paste(
+        locus,
+        "has", length(alleles),
+        "alleles:", paste(alleles, collapse = ", ")
+      )
+    )
+  }
+  
+  # Choose the first allele as the allele being counted
+  ref_allele <- alleles[1]
+  
+  # Calculate dosage
+  russianriver_dosage[[locus]] <- ifelse(
+    is.na(russianriver_wider[[col1]]) |
+      is.na(russianriver_wider[[col2]]),
+    NA,
+    (russianriver_wider[[col1]] == ref_allele) +
+      (russianriver_wider[[col2]] == ref_allele)
+  )
+}
+
+write.csv(russianriver_dosage, file = "Data/Populations/russianriver_alleledosage.csv")
+```

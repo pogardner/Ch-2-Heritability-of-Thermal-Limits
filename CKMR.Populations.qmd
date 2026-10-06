@@ -7,7 +7,9 @@ editor: visual
 
 ## CKMRsim: A Population level analysis
 
-The last ckmr script analysed the whole data set at once. While this didn't initially appear to be a problem, we want to assume that each population is isolated from one another. As a result, we need to run ckmr again on each population.
+To do an initial assessment of relatedness, we use Eric Anderson's CKMRsim. Excellent tutorials on how to to use this pacakge can be found here: <https://eriqande.github.io/CKMRsim/articles/CKMRsim-example-1.html>
+
+Here, we will assume that each population is isolated from one another. As a result, we will run this analysis on each population individually, but not separate by study year.
 
 1.  Load in libraries and data
 2.  Create new data frames for each watershed/population

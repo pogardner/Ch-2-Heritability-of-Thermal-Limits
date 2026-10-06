@@ -7,7 +7,9 @@ editor: visual
 
 ## CKMRsim: A Population level analysis
 
-The last ckmr script analysed the whole data set at once. While this didn't initially appear to be a problem, we want to assume that each population is isolated from one another. As a result, we need to run ckmr again on each population.
+To do an initial assessment of relatedness, we use Eric Anderson's CKMRsim. Excellent tutorials on how to to use this pacakge can be found here: <https://eriqande.github.io/CKMRsim/articles/CKMRsim-example-1.html>
+
+Here, we will assume that each population is isolated from one another. As a result, we will run this analysis on each population individually, but not separate by study year.
 
 1.  Load in libraries and data
 2.  Create new data frames for each watershed/population
@@ -30,11 +32,11 @@ library(CKMRsim)
 #| output: false
 
 # Phenotype and metadata
-ctmax <- read.csv(here("Genomics/Data/Omy5_inversion_metadata_merge.csv"))
+ctmax <- read.csv(here("Data/Omy5_inversion_metadata_merge.csv"))
 
 # SNP data -------------------------------------------------------------------
 # Data received 7/2/26
-snp <- read.csv(here("Genomics/Data/PaigeAdapCapFishSNPGenotypes.raw.csv"))
+snp <- read.csv(here("Data/PaigeAdapCapFishSNPGenotypes.raw.csv"))
 # extract first 7 characters into column with the same name as the ctmax dataframe
 str(snp$Sample_ID)
 snp$indiv.ID <- substr(snp$Sample_ID,1,7)
@@ -63,7 +65,7 @@ snp <- snp %>%
 
 # MHap data----------------------------------------------------------------------
 ## Neutral
-neutral_mhap <- read.csv(here("Genomics/Data/Neutral_genotypes_mhapcode_wide.csv"))
+neutral_mhap <- read.csv(here("Data/Neutral_genotypes_mhapcode_wide.csv"))
 nc <- ncol(neutral_mhap)
 loci <- str_replace( # expects string, pattern, replacement
   names(neutral_mhap)# returns the names of the columns
@@ -77,19 +79,7 @@ names(neutral_mhap)[seq(3, nc, by = 2)] <- str_c(loci, "2", sep = ".") # put a .
 
 ### Important filtering from adaptive panel
 
-After running the adap_panel_variationanalysis R script, I determined there was a lot of homogeneity in the adaptive panel that was skewing the relationships of individuals and making them look a lot more related than they are. These are the loci I am removing following that analysis:
-
--   Remove all Ch28 (homogenous)
-
--   From Omy05: keep only Omy_ch05_10_57 and omy_ch05_8
-
--   greb1: keep mhap 10 and mhap2
-
--   vgll3: remove snp2
-
--   six6: this one was challenging because it looks like there's a lot of heterogeneity in this region. I selected Omy_Ch25_Six6_61287415 and Omy_Ch25_Six6_61318852
-
-Kerry suggested removing the following, across all panels:
+We visually and graphically determined there was a lot of homogeneity in the adaptive panel that was skewing the relationships of individuals and making them look a lot more related than they are. Kerry suggested removing the following, across all panels:
 
 -   SH127645_308: low variability
 
@@ -161,42 +151,8 @@ Kerry suggested removing the following, across all panels:
 
 ```{r}
 ## Adaptive
-adap_mhap <- read.csv(here("Genomics/Data/Adaptive_genotypes_mhapcode_wide.csv"))
+adap_mhap <- read.csv(here("Data/Adaptive_genotypes_mhapcode_wide.csv"))
 
-```
-
-```{r}
-
-
-# Filter out all but one of the Omy05 markers to avoid pseudo-replication
-adap_mhap_clean <- adap_mhap %>% 
-  # Ch 28
-  dplyr::select(!contains("Omy_Ch28_11")) %>% # remove all Ch_28 that aren't greb1
-  # vgll3
-  dplyr::select(-c("Omy_Ch22_VGLL3.6_snp2_haplotype.1", # remove vgll3 snp2
-                   "Omy_Ch22_VGLL3.6_snp2_haplotype.2")) %>% 
-  dplyr::select("indiv.ID", # keep individual id
-  # Omy05
-                "Omy_Ch05_10_57417407_haplotype.1", #Omy05
-                "Omy_Ch05_10_57417407_haplotype.2", #Omy05
-                "Omy_Ch05_8_28133607_haplotype.1",#Omy05
-                "Omy_Ch05_8_28133607_haplotype.2",#Omy05
-  # greb1
-                "Omy_Ch28_greb1_mhap10_haplotype.1",# greb1
-                "Omy_Ch28_greb1_mhap10_haplotype.2",# greb1
-                "Omy_Ch28_greb1_mhap2_haplotype.1", # greb1
-                "Omy_Ch28_greb1_mhap2_haplotype.2",   # greb1
-  # six6
-                
-                "Omy_Ch25_Six6_61287415_haplotype.1",
-                "Omy_Ch25_Six6_61287415_haplotype.2",
-                "Omy_Ch25_Six6_61318852_haplotype.1",
-                "Omy_Ch25_Six6_61318852_haplotype.2",
-  # leftover vgll3
-                "Omy_Ch22_VGLL3.1_haplotype.1",
-                "Omy_Ch22_VGLL3.1_haplotype.2",
-                "Omy_Ch22_VGLL3.6_snp1_haplotype.1",
-                "Omy_Ch22_VGLL3.6_snp1_haplotype.2") 
 ```
 
 The ones Kerry suggested to remove, across all panels:
@@ -244,6 +200,12 @@ merged_clean <- fullmerge %>%
                        "M145524", "M145692"))
 ```
 
+Lastly, all NA values should be 0's.
+
+```{r}
+sum(is.na(merged_clean))
+```
+
 Save the above data frame for easy access in the repository:
 
 ```{r}
@@ -256,7 +218,9 @@ Merge location data from the metadata file with the above data file. (Most recen
 populations <- ctmax %>% 
   rename(indiv.ID = NMFS_DNA_ID_use) %>% 
    filter(!indiv.ID %in% c("M145767","M145542", 
-                       "M145524", "M145692")) %>% 
+                       "M145524", "M145692",
+                       "M145961" # this individual from RR doesn't have any genetic data
+                       )) %>% 
   dplyr::select(c(indiv.ID,WATERSHED)) %>% 
   left_join(., merged_clean, by ="indiv.ID")
 
@@ -272,23 +236,31 @@ bigcreek <- populations %>%
   filter(WATERSHED == "Big Creek") %>% 
   dplyr::select(-WATERSHED)
 
-write.csv(bigcreek, "Data/bigcreek_cleaned_snps_mhaps.csv")
+write.csv(bigcreek, "Data/Populations/bigcreek_cleaned_snps_mhaps.csv")
 
 scottcreek <- populations %>% 
   filter(WATERSHED == "Scott Creek")%>% 
   dplyr::select(-WATERSHED)
 
+write.csv(scottcreek, "Data/Populations/scottcreek_cleaned_snps_mhaps.csv")
+
 carmelriver <- populations %>% 
   filter(WATERSHED == "Carmel River")%>% 
   dplyr::select(-WATERSHED)
+
+write.csv(carmelriver, "Data/Populations/carmelriver_cleaned_snps_mhaps.csv")
 
 napariver <- populations %>% 
   filter(WATERSHED == "Napa River")%>% 
   dplyr::select(-WATERSHED)
 
+write.csv(napariver, "Data/Populations/napariver_cleaned_snps_mhaps.csv")
+
 russianriver <- populations %>% 
   filter(WATERSHED == "Russian River")%>% 
   dplyr::select(-WATERSHED)
+
+write.csv(russianriver, "Data/Populations/russianriver_cleaned_snps_mhaps.csv")
 ```
 
 ## 3a) Big Sur
@@ -298,7 +270,7 @@ russianriver <- populations %>%
 nc <- ncol(bigcreek)
 loci <- str_replace(names(bigcreek)[seq(2, nc, by = 2)], "\\.1$", "")
 # then make some long format genotypes
-long_genos <- bigcreek %>% 
+bigcreek_long_genos <- bigcreek %>% 
   gather(key = "loc", value = "Allele", -indiv.ID) %>%
    extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
     loc,
@@ -309,13 +281,13 @@ long_genos <- bigcreek %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
 
-saveRDS(long_genos, file = "Data/bigcreek_longgenos.rds")
+saveRDS(bigcreek_long_genos, file = "Data/Populations/bigcreek_longgenos.rds")
 ```
 
 Compute allele frequencies. Save it as an rds file for input into greedy algorithm (other script).
 
 ```{r}
-bigcreekalle_freqs <- long_genos %>%
+bigcreekalle_freqs <- bigcreek_long_genos %>%
   count(Locus, Allele) %>%
   group_by(Locus) %>%
   mutate(Freq = n / sum(n),
@@ -329,7 +301,7 @@ bigcreekalle_freqs <- long_genos %>%
   filter(!is.na(Allele))
 
 # see what that looks like:
-saveRDS(bigcreekalle_freqs, file = "Data/bigcreek_allelefreqs.rds")
+saveRDS(bigcreekalle_freqs, file = "Data/Populations/bigcreek_allelefreqs.rds")
 ```
 
 Reindex the data allele frequency data frame so that ckmr can use it
@@ -464,7 +436,7 @@ bigcreek_FS_is %>%
 nc <- ncol(scottcreek)
 loci <- str_replace(names(scottcreek)[seq(2, nc, by = 2)], "\\.1$", "")
 # then make some long format genotypes
-long_genos <- scottcreek %>% 
+scottcreek_long_genos <- scottcreek %>% 
   gather(key = "loc", value = "Allele", -indiv.ID) %>%
    extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
     loc,
@@ -474,12 +446,14 @@ long_genos <- scottcreek %>%
   mutate(Allele = as.character(Allele)) %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
+
+saveRDS(scottcreek_long_genos, file = "Data/Populations/scottcreek_longgenos.rds")
 ```
 
 Compute allele frequencies.
 
 ```{r}
-scottcreekalle_freqs <- long_genos %>%
+scottcreekalle_freqs <- scottcreek_long_genos %>%
   count(Locus, Allele) %>%
   group_by(Locus) %>%
   mutate(Freq = n / sum(n),
@@ -493,32 +467,15 @@ scottcreekalle_freqs <- long_genos %>%
   filter(!is.na(Allele))
 
 # see what that looks like:
-alle_freqs
+scottcreekalle_freqs
 
-saveRDS(scottcreekalle_freqs)
-
-# How much missingness do you have?
-long_genos %>%
-  group_by(Locus) %>%
-  summarise(
-    n = n(),
-    missing = sum(is.na(Allele)),
-    prop_missing = mean(is.na(Allele))
-  )
-
-alle_freqs %>%
-  group_by(Locus) %>%
-  summarise(
-    n_alleles = n(),
-    freq_sum = sum(Freq)
-  )
-
+saveRDS(scottcreekalle_freqs, file = "Data/Populations/scottcreek_allelefreqs.rds")
 ```
 
 Reindex the data allele frequency data frame so that ckmr can use it
 
 ```{r}
-afreqs_ready <- reindex_markers(alle_freqs)
+afreqs_ready <- reindex_markers(scottcreekalle_freqs)
 ```
 
 **Create a ckmr object**
@@ -647,7 +604,7 @@ scottcreek_FS_is %>%
 nc <- ncol(carmelriver)
 loci <- str_replace(names(carmelriver)[seq(2, nc, by = 2)], "\\.1$", "")
 # then make some long format genotypes
-long_genos <- carmelriver %>% 
+carmelriver_longgenos <- carmelriver %>% 
   gather(key = "loc", value = "Allele", -indiv.ID) %>%
    extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
     loc,
@@ -658,12 +615,13 @@ long_genos <- carmelriver %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
 
+saveRDS(carmelriver_longgenos, file = "Data/Populations/carmelriver_longgenos.rds")
 ```
 
 Compute allele frequencies.
 
 ```{r}
-alle_freqs <- long_genos %>%
+carmelriver_alle_freqs <- carmelriver_longgenos %>%
   count(Locus, Allele) %>%
   group_by(Locus) %>%
   mutate(Freq = n / sum(n),
@@ -676,14 +634,15 @@ alle_freqs <- long_genos %>%
          LocIdx = NA) %>%
   filter(!is.na(Allele))
 
+saveRDS(carmelriver_alle_freqs, file = "Data/Populations/carmelriver_allelefreqs.rds")
 # see what that looks like:
-alle_freqs
+carmelriver_alle_freqs
 ```
 
 Reindex the data allele frequency data frame so that ckmr can use it
 
 ```{r}
-afreqs_ready <- reindex_markers(alle_freqs)
+afreqs_ready <- reindex_markers(carmelriver_alle_freqs)
 ```
 
 **Create a ckmr object**
@@ -744,14 +703,6 @@ FPR_results <- mc_sample_simple(
 )
 ```
 
-#### How many comparisons? Setting acceptable FPR
-
-116 individuals
-
-```{r}
-0.1*((116*115)/2)^-1
-```
-
 #### Setting logLR
 
 Logl ratio that gives FNR = 0.01
@@ -779,8 +730,8 @@ Compute LogLR for all pairwise comparisons.
 
 ```{r}
 # Full sib pairs
-carmelriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
-                                              D2 = long_genos,
+carmelriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = carmelriver_longgenos,
+                                              D2 = carmelriver_longgenos,
                                               CK = carmelriver_ckmr,
                                               numer = "FS",
                                               denom = "U", 
@@ -811,7 +762,7 @@ carmelriver_FS_is %>%
 nc <- ncol(napariver)
 loci <- str_replace(names(napariver)[seq(2, nc, by = 2)], "\\.1$", "")
 # then make some long format genotypes
-long_genos <- napariver %>% 
+napariver_long_genos <- napariver %>% 
   gather(key = "loc", value = "Allele", -indiv.ID) %>%
    extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
     loc,
@@ -821,13 +772,14 @@ long_genos <- napariver %>%
   mutate(Allele = as.character(Allele)) %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
+saveRDS(napariver_long_genos, file = "Data/Populations/napariver_longgenos.rds")
 
 ```
 
 Compute allele frequencies.
 
 ```{r}
-alle_freqs <- long_genos %>%
+napariver_alle_freqs <- napariver_long_genos %>%
   count(Locus, Allele) %>%
   group_by(Locus) %>%
   mutate(Freq = n / sum(n),
@@ -840,14 +792,16 @@ alle_freqs <- long_genos %>%
          LocIdx = NA) %>%
   filter(!is.na(Allele))
 
+saveRDS(napariver_alle_freqs, file = "Data/Populations/napariver_allelefreqs.rds")
+
 # see what that looks like:
-alle_freqs
+napariver_alle_freqs
 ```
 
 Reindex the data allele frequency data frame so that ckmr can use it
 
 ```{r}
-afreqs_ready <- reindex_markers(alle_freqs)
+afreqs_ready <- reindex_markers(napariver_alle_freqs)
 ```
 
 **Create a ckmr object**
@@ -975,7 +929,7 @@ napariver_FS_is %>%
 nc <- ncol(russianriver)
 loci <- str_replace(names(russianriver)[seq(2, nc, by = 2)], "\\.1$", "")
 # then make some long format genotypes
-long_genos <- russianriver %>% 
+russianriver_long_genos <- russianriver %>% 
   gather(key = "loc", value = "Allele", -indiv.ID) %>%
    extract( # ChatGPT helped me with this code chunk. had to adapt from CKMR tutorial bc some of the gene names have other . in them
     loc,
@@ -985,13 +939,13 @@ long_genos <- russianriver %>%
   mutate(Allele = as.character(Allele)) %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
-
+saveRDS(russianriver_long_genos, file = "Data/Populations/russianriver_longgenos.rds")
 ```
 
 Compute allele frequencies.
 
 ```{r}
-alle_freqs <- long_genos %>%
+russianriver_alle_freqs <- russianriver_long_genos %>%
   count(Locus, Allele) %>%
   group_by(Locus) %>%
   mutate(Freq = n / sum(n),
@@ -1003,15 +957,15 @@ alle_freqs <- long_genos %>%
   mutate(AlleIdx = NA,
          LocIdx = NA) %>%
   filter(!is.na(Allele))
-
+saveRDS(russianriver_alle_freqs, file = "Data/Populations/russianriver_allelefreqs.rds")
 # see what that looks like:
-alle_freqs
+russianriver_alle_freqs
 ```
 
 Reindex the data allele frequency data frame so that ckmr can use it
 
 ```{r}
-afreqs_ready <- reindex_markers(alle_freqs)
+afreqs_ready <- reindex_markers(russianriver_alle_freqs)
 ```
 
 **Create a ckmr object**
@@ -1133,3 +1087,14 @@ russianriver_FS_is %>%
 ```
 
 Whether or not I set the loglr to 17 or 18 doesn't change the number of full sibs.
+
+## Check for monomorphic genes
+
+```{r}
+bigcreek %>% 
+  dplyr::select(tag_id_2243_hap1_code.1)
+
+length(unique(russianriver$tag_id_1637_hap1_code.2))
+scottcreek %>%
+  count(tag_id_986_hap1_code.2, sort = TRUE)
+```
