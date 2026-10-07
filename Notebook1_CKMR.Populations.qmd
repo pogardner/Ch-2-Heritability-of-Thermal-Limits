@@ -37,6 +37,7 @@ ctmax <- read.csv(here("Data/Omy5_inversion_metadata_merge.csv"))
 # SNP data -------------------------------------------------------------------
 # Data received 7/2/26
 snp <- read.csv(here("Data/PaigeAdapCapFishSNPGenotypes.raw.csv"))
+
 # extract first 7 characters into column with the same name as the ctmax dataframe
 str(snp$Sample_ID)
 snp$indiv.ID <- substr(snp$Sample_ID,1,7)
@@ -66,6 +67,7 @@ snp <- snp %>%
 # MHap data----------------------------------------------------------------------
 ## Neutral
 neutral_mhap <- read.csv(here("Data/Neutral_genotypes_mhapcode_wide.csv"))
+neutral_mhap$tag
 nc <- ncol(neutral_mhap)
 loci <- str_replace( # expects string, pattern, replacement
   names(neutral_mhap)# returns the names of the columns
@@ -152,7 +154,7 @@ We visually and graphically determined there was a lot of homogeneity in the ada
 ```{r}
 ## Adaptive
 adap_mhap <- read.csv(here("Data/Adaptive_genotypes_mhapcode_wide.csv"))
-
+adap_mhap$
 ```
 
 The ones Kerry suggested to remove, across all panels:
@@ -281,7 +283,7 @@ bigcreek_long_genos <- bigcreek %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
 
-saveRDS(bigcreek_long_genos, file = "Data/Populations/bigcreek_longgenos.rds")
+#saveRDS(bigcreek_long_genos, file = "Data/Populations/bigcreek_longgenos.rds")
 ```
 
 Compute allele frequencies. Save it as an rds file for input into greedy algorithm (other script).
@@ -301,7 +303,7 @@ bigcreekalle_freqs <- bigcreek_long_genos %>%
   filter(!is.na(Allele))
 
 # see what that looks like:
-saveRDS(bigcreekalle_freqs, file = "Data/Populations/bigcreek_allelefreqs.rds")
+#saveRDS(bigcreekalle_freqs, file = "Data/Populations/bigcreek_allelefreqs.rds")
 ```
 
 Reindex the data allele frequency data frame so that ckmr can use it
@@ -368,14 +370,6 @@ FPR_results <- mc_sample_simple(
 )
 ```
 
-#### How many comparisons? Setting acceptable FPR
-
-127 individuals
-
-```{r}
-0.1*((127*126)/2)^-1
-```
-
 ## Setting logLR
 
 Logl ratio that gives FNR = 0.01
@@ -387,7 +381,7 @@ bigcreek_FS_is %>%
   slice(1)
 ```
 
-We can set logLR to 18.
+We can set logLR to 17.
 
 **Check for matchers.**
 
@@ -405,8 +399,8 @@ Compute LogLR for all pairwise comparisons.
 
 ```{r}
 # Full sib pairs
-bigcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
-                                              D2 = long_genos,
+bigcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = bigcreek_long_genos,
+                                              D2 = bigcreek_long_genos,
                                               CK = bigcreek_ckmr,
                                               numer = "FS",
                                               denom = "U", 
@@ -422,13 +416,15 @@ bigcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
 
 ```{r}
 fullsibs_bigcreek = bigcreek_fs_pairwise_logls %>%
-  filter(logl_ratio > 18) %>%
+  filter(logl_ratio > 17) %>%
   arrange(desc(logl_ratio))
 
 bigcreek_FS_is %>%
   arrange(Lambda_star) %>%
   dplyr::select(Lambda_star, FPR) 
 ```
+
+There are 247 full sib pairs.
 
 ## 3b) Scott Creek
 
@@ -447,7 +443,7 @@ scottcreek_long_genos <- scottcreek %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
 
-saveRDS(scottcreek_long_genos, file = "Data/Populations/scottcreek_longgenos.rds")
+#saveRDS(scottcreek_long_genos, file = "Data/Populations/scottcreek_longgenos.rds")
 ```
 
 Compute allele frequencies.
@@ -489,6 +485,7 @@ scottcreek_ckmr <- create_ckmr(
   ge_mod_assumed_pars_list = list(epsilon = 0.005),
   ge_mod_true_pars_list = list(epsilon = 0.005)
 )
+scottcreek_ckmr
 ```
 
 **Simulate genotype pairs and calculate their log probabilities.**
@@ -537,14 +534,6 @@ FPR_results <- mc_sample_simple(
 sum(is.na(scottcreek))
 ```
 
-#### How many comparisons? Setting acceptable FPR
-
-127 individuals
-
-```{r}
-0.1*((119*118)/2)^-1
-```
-
 #### Setting logLR
 
 Logl ratio that gives FNR = 0.01
@@ -556,7 +545,7 @@ scottcreek_FS_is %>%
   slice(1)
 ```
 
-Set lambda to 17.
+Set lambda to 15
 
 **Check for matchers.**
 
@@ -572,8 +561,8 @@ Compute LogLR for all pairwise comparisons.
 
 ```{r}
 # Full sib pairs
-scottcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
-                                              D2 = long_genos,
+scottcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = scottcreek_long_genos,
+                                              D2 = scottcreek_long_genos,
                                               CK = scottcreek_ckmr,
                                               numer = "FS",
                                               denom = "U", 
@@ -589,13 +578,15 @@ scottcreek_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
 
 ```{r}
 fullsibs_scottcreek<- scottcreek_fs_pairwise_logls %>%
-  filter(logl_ratio > 16) %>%
+  filter(logl_ratio > 15) %>%
   arrange(desc(logl_ratio))
 
 scottcreek_FS_is %>%
   arrange(Lambda_star) %>%
   dplyr::select(Lambda_star, FPR) 
 ```
+
+There are 231 full sib pairs.
 
 ## 3c) Carmel River
 
@@ -714,7 +705,7 @@ carmelriver_FS_is %>%
   slice(1)
 ```
 
-Set logLR to 15
+Set logLR to 16
 
 **Check for matchers.**
 
@@ -747,13 +738,15 @@ carmelriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = carmelriver_longg
 
 ```{r}
 fullsibs_carmelriver = carmelriver_fs_pairwise_logls %>%
-  filter(logl_ratio > 15) %>%
+  filter(logl_ratio > 16) %>%
   arrange(desc(logl_ratio))
 
 carmelriver_FS_is %>%
   arrange(Lambda_star) %>%
   dplyr::select(Lambda_star, FPR) 
 ```
+
+There are 23 full sibling pairs.
 
 ## 3d) Napa River
 
@@ -772,7 +765,7 @@ napariver_long_genos <- napariver %>%
   mutate(Allele = as.character(Allele)) %>%
   mutate(Allele = ifelse(Allele == "0", NA, Allele)) %>%
   rename(Indiv = indiv.ID)
-saveRDS(napariver_long_genos, file = "Data/Populations/napariver_longgenos.rds")
+#saveRDS(napariver_long_genos, file = "Data/Populations/napariver_longgenos.rds")
 
 ```
 
@@ -792,7 +785,7 @@ napariver_alle_freqs <- napariver_long_genos %>%
          LocIdx = NA) %>%
   filter(!is.na(Allele))
 
-saveRDS(napariver_alle_freqs, file = "Data/Populations/napariver_allelefreqs.rds")
+#saveRDS(napariver_alle_freqs, file = "Data/Populations/napariver_allelefreqs.rds")
 
 # see what that looks like:
 napariver_alle_freqs
@@ -862,14 +855,6 @@ FPR_results <- mc_sample_simple(
 )
 ```
 
-#### How many comparisons? Setting acceptable FPR
-
-127 individuals
-
-```{r}
-0.1*((50*49)/2)^-1
-```
-
 #### Setting logLR
 
 Logl ratio that gives FNR = 0.01
@@ -881,7 +866,7 @@ napariver_FS_is %>%
   slice(1)
 ```
 
-Set lambda to 12, or maybe 13.
+Set lambda to 13.
 
 **Check for matchers.**
 
@@ -897,8 +882,8 @@ Compute LogLR for all pairwise comparisons.
 
 ```{r}
 # Full sib pairs
-napariver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
-                                              D2 = long_genos,
+napariver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = napariver_long_genos,
+                                              D2 = napariver_long_genos,
                                               CK = napariver_ckmr,
                                               numer = "FS",
                                               denom = "U", 
@@ -921,6 +906,8 @@ napariver_FS_is %>%
   arrange(Lambda_star) %>%
   dplyr::select(Lambda_star, FPR) 
 ```
+
+There are 79 full sibling pairs.
 
 ## 3e) Russian River
 
@@ -957,7 +944,7 @@ russianriver_alle_freqs <- russianriver_long_genos %>%
   mutate(AlleIdx = NA,
          LocIdx = NA) %>%
   filter(!is.na(Allele))
-saveRDS(russianriver_alle_freqs, file = "Data/Populations/russianriver_allelefreqs.rds")
+# saveRDS(russianriver_alle_freqs, file = "Data/Populations/russianriver_allelefreqs.rds")
 # see what that looks like:
 russianriver_alle_freqs
 ```
@@ -1026,26 +1013,18 @@ FPR_results <- mc_sample_simple(
 )
 ```
 
-#### How many comparisons? Setting acceptable FPR
-
-127 individuals
-
-```{r}
-0.1*((72*71)/2)^-1
-```
-
 #### Setting logLR
 
 Logl ratio that gives FNR = 0.01
 
 ```{r}
-bigcreek_FS_is %>%
+russianriver_FS_is %>%
   filter(FNR == 0.01) %>%
   arrange(FNR) %>%
   slice(1)
 ```
 
-Set lambda to either 17 or 18
+Set lambda to 16
 
 **Check for matchers.**
 
@@ -1061,8 +1040,8 @@ Compute LogLR for all pairwise comparisons.
 
 ```{r}
 # Full sib pairs
-russianriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
-                                              D2 = long_genos,
+russianriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = russianriver_long_genos,
+                                              D2 = russianriver_long_genos,
                                               CK = russianriver_ckmr,
                                               numer = "FS",
                                               denom = "U", 
@@ -1078,7 +1057,7 @@ russianriver_fs_pairwise_logls <- pairwise_kin_logl_ratios(D1 = long_genos,
 
 ```{r}
 fullsibs_russianriver = russianriver_fs_pairwise_logls %>%
-  filter(logl_ratio > 18) %>%
+  filter(logl_ratio > 16) %>%
   arrange(desc(logl_ratio))
 
 russianriver_FS_is %>%

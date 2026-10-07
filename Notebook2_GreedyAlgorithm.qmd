@@ -19,8 +19,7 @@ library(dplyr)
 library(stringr)
 ```
 
-This is E. Anderson's code. First, he writes a function that acts any non-biallelic (SNP, or simple mhaps) into the algorithm.
-# Algorithm
+This is E. Anderson's code. First, he writes a function that acts any non-biallelic (SNP, or simple mhaps) into the algorithm. \# Algorithm
 
 ```{r}
 partition_greedy <- function(x) {
@@ -63,6 +62,7 @@ partition_greedy <- function(x) {
 ```
 
 # 1) Big Creek
+
 Read in trimmed csv of all genetics data for Big Creek, trimmed of pseudoreplicates:
 
 ```{r}
@@ -361,6 +361,7 @@ write.csv(bigcreek_dosage, file = "Data/Populations/bigcreek_alleledosage.csv")
 This appeared to work- we have half the number of observations as the full data frame, indicating one column per gene.
 
 # 2) Scott Creek
+
 Follow the same steps as above.
 
 ```{r}
@@ -403,6 +404,7 @@ sc_new_freqs
 ```
 
 Visualize.
+
 ```{r}
 MAFs <- sc_new_freqs %>%
   filter(LumpedFreq == min(LumpedFreq)) %>%
@@ -524,7 +526,7 @@ matchers <- find_close_matching_genotypes(LG = scottcreek_lumpy_long_genos,
 matchers
 ```
 
-No matchers found. 
+No matchers found.
 
 #### Check for full-sibs with bi-allelic data
 
@@ -542,6 +544,7 @@ scottcreek_FS_is %>%
   slice(1)
 
 ```
+
 Using a FNR threshold of 0.01, lambda should be set to 9 or 10 (calculated value: 9.45).
 
 ```{r}
@@ -562,7 +565,7 @@ scottcreeksibs<- scottcreek_lumpy_pairwise_logls %>%
   arrange(desc(logl_ratio))
 ```
 
-We find 271 pairs. 
+We find 271 pairs.
 
 ### Prep data for matrix
 
@@ -644,6 +647,7 @@ write.csv(scottcreek_dosage, file = "Data/Populations/scottcreek_alleledosage.cs
 ```
 
 # 3) Carmel River
+
 Follow the same steps as above.
 
 ```{r}
@@ -686,6 +690,7 @@ cr_new_freqs
 ```
 
 Visualize.
+
 ```{r}
 MAFs <- cr_new_freqs %>%
   filter(LumpedFreq == min(LumpedFreq)) %>%
@@ -819,7 +824,9 @@ carmelriver_FS_is %>%
   slice(1)
 
 ```
+
 I will set the lambda to 11.
+
 ```{r}
 carmelriver_lumpy_pairwise_logls <- pairwise_kin_logl_ratios(
                                               D1 = carmelriver_lumpy_long_genos,
@@ -838,7 +845,7 @@ carmelriversibs<- carmelriver_lumpy_pairwise_logls %>%
   arrange(desc(logl_ratio))
 ```
 
-We find 22 pairs.Before the biallelic conversion, we found 23. 
+We find 22 pairs.Before the biallelic conversion, we found 23.
 
 ### Prep data for matrix
 
@@ -920,6 +927,7 @@ write.csv(carmelriver_dosage, file = "Data/Populations/carmelriver_alleledosage.
 ```
 
 # 4) Napa River
+
 Follow the same steps as above.
 
 ```{r}
@@ -962,6 +970,7 @@ nr_new_freqs
 ```
 
 Visualize.
+
 ```{r}
 MAFs <- nr_new_freqs %>%
   filter(LumpedFreq == min(LumpedFreq)) %>%
@@ -1101,6 +1110,7 @@ napariver_FS_is %>%
   slice(1)
 
 ```
+
 Set lambda to 9.
 
 ```{r}
@@ -1203,6 +1213,7 @@ write.csv(napariver_dosage, file = "Data/Populations/napariver_alleledosage.csv"
 ```
 
 # 5) Russian River
+
 Follow the same steps as above.
 
 ```{r}
@@ -1246,6 +1257,7 @@ rr_new_freqs
 ```
 
 Visualize.
+
 ```{r}
 MAFs <- rr_new_freqs %>%
   filter(LumpedFreq == min(LumpedFreq)) %>%
@@ -1263,7 +1275,7 @@ ggplot(MAFs, aes(x = MAF, fill = type)) +
   facet_wrap(~ type, ncol = 1)+
   labs(y="",
        x= "MAF",
-       title="Big Creek Greedy Alg. MAF")+
+       title="Russian River Greedy Alg. MAF")+
   theme_bw()
 ```
 
@@ -1380,6 +1392,7 @@ russianriver_FS_is %>%
   slice(1)
 
 ```
+
 Set lambda to 10.
 
 ```{r}
